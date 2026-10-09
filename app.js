@@ -149,17 +149,15 @@ async function loadPeople(){
 }
 async function loadChats(){
  if(!hasSupabase||!uid())return;
- const {data,error}=await sb.from("chat_members").select("chat_id").eq("user_id",uid());
+ const {data,error}=await sb.rpc("my_chats");
  if(error){console.warn(error);return;}
- const ids=[...new Set((data||[]).map(x=>x.chat_id))];
- const result=[];
- for(const chatId of ids){
-   const {data:members}=await sb.from("chat_members").select("user_id").eq("chat_id",chatId);
-   const other=(members||[]).find(m=>m.user_id!==uid());
-   if(!other)continue;
-   const person=state.people.find(p=>p.id===other.user_id);
+ const seen=new Set(), result=[];
+ for(const row of (data||[])){
+   if(seen.has(row.other_user_id))continue; seen.add(row.other_user_id);
+   const chatId=row.chat_id;
+   const person=state.people.find(p=>p.id===row.other_user_id);
    const {data:last}=await sb.from("messages").select("content,message_type,created_at,file_name,sender_id").eq("chat_id",chatId).order("created_at",{ascending:false}).limit(1).maybeSingle();
-   result.push({id:chatId,user_id:other.user_id,name:person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:last?.content||(last?.message_type==="image"?"Photo":last?.message_type==="video"?"Video":last?"File":"Tap to chat"),time:last?.created_at||"",unread:0});
+   result.push({id:chatId,user_id:row.other_user_id,name:person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:last?.content||(last?.message_type==="image"?"Photo":last?.message_type==="video"?"Video":last?"File":"Tap to chat"),time:last?.created_at||"",unread:0});
  }
  state.chats=result;
  updatePresenceFlags();
@@ -172,20 +170,14 @@ function updatePresenceFlags(){
 async function startChatWith(userId){
  let c=state.chats.find(x=>x.user_id===userId);
  if(!c){
-   const {data:my}=await sb.from("chat_members").select("chat_id").eq("user_id",uid());
-   for(const row of (my||[])){
-     const {data:members}=await sb.from("chat_members").select("user_id").eq("chat_id",row.chat_id);
-     if((members||[]).some(m=>m.user_id===userId)){c=state.chats.find(x=>x.id===row.chat_id);break;}
-   }
- }
- if(!c){
-   const p=state.people.find(x=>x.id===userId);
-   const {data:chat,error}=await sb.from("chats").insert({chat_type:"private",created_by:uid()}).select().single();
+   const {data:chatId,error}=await sb.rpc("get_or_create_private_chat",{other_user:userId});
    if(error)return alert(error.message);
-   const {error:me}=await sb.from("chat_members").insert([{chat_id:chat.id,user_id:uid()},{chat_id:chat.id,user_id:userId}]);
-   if(me){await sb.from("chats").delete().eq("id",chat.id);return alert(me.message);}
-   c={id:chat.id,user_id:userId,name:p?.display_name||"NTalk User",username:p?"@"+p.username:"",online:p?.online||false,msg:"No messages yet",time:"",unread:0};
-   state.chats.unshift(c);
+   const p=state.people.find(x=>x.id===userId);
+   c=state.chats.find(x=>x.id===chatId);
+   if(!c){
+     c={id:chatId,user_id:userId,name:p?.display_name||"NTalk User",username:p?"@"+p.username:"",online:p?.online||false,msg:"Tap to chat",time:"",unread:0};
+     state.chats.unshift(c);
+   }
  }
  state.activeChat=state.chats.indexOf(c);
  state.chatTab="chats";
@@ -293,74 +285,4 @@ async function initPresence(){
 
 function callsView(){return `<section class="full-page"><header><h2>Calls</h2></header><div class="call-card"><div class="avatar">${ico("phone")}</div><div><b>Voice & Video Calls</b><small>Select a person from People, open the chat, then use the call buttons.</small></div></div></section>`}
 function groupsView(){return `<section class="full-page"><header><h2>Groups</h2></header><div class="group-card"><div class="avatar">${ico("users")}</div><div><b>Groups</b><small>Private 1-to-1 chat is fully connected. Group chat can be added on the same backend next.</small></div></div></section>`}
-function profileView(){return `<section class="full-page profile"><header><h2>Profile</h2><button onclick="logout()" class="danger-text">Logout</button></header><div class="profile-top"><div class="profile-avatar">${esc(avatarName(meName()))}</div><h2>${esc(meName())}</h2><p>${esc(state.user?.username||"@user")}</p><span class="status">Online</span></div><div class="settings-card"><button onclick="installApp()">Install NTalk <span>${ico("download")}</span></button><button onclick="toggleTheme()">Appearance: ${state.theme==="dark"?"Dark":"Light"} <span>${ico("theme")}</span></button><button onclick="alert('Email: '+state.user.email)">Account <span>${ico("user")}</span></button></div></section>`}
-
-function rtcConfig(){
- const ice=[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:stun1.l.google.com:19302"}];
- if(cfg.TURN_URL)ice.push({urls:cfg.TURN_URL,username:cfg.TURN_USERNAME,credential:cfg.TURN_CREDENTIAL});
- return {iceServers:ice};
-}
-async function setupSignaling(){
- if(!hasSupabase||!state.user)return;
- if(state.signal)await sb.removeChannel(state.signal);
- state.signal=sb.channel("ntalk-call-signal",{config:{broadcast:{self:false}}});
- state.signal.on("broadcast",{event:"call"},async({payload})=>{if(payload.to===uid())await onSignal(payload)}).subscribe();
-}
-async function signal(payload){if(state.signal)await state.signal.send({type:"broadcast",event:"call",payload:{...payload,from:uid(),fromName:meName()}})}
-function callTarget(){return state.chats[state.activeChat]?.user_id}
-async function startCall(type){
- const to=callTarget();if(!to)return alert("Open a chat first.");
- if(!navigator.mediaDevices?.getUserMedia)return alert("Microphone/camera access is unavailable. Use HTTPS.");
- try{localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:type==="video"});}catch(e){return alert("Permission denied or device media is unavailable: "+e.message)}
- state.call={role:"caller",type,to,otherName:state.chats[state.activeChat].name,status:"Calling…"};showCallOverlay();
- peer=new RTCPeerConnection(rtcConfig());localStream.getTracks().forEach(t=>peer.addTrack(t,localStream));
- peer.onicecandidate=e=>e.candidate&&signal({kind:"ice",to,candidate:e.candidate});peer.ontrack=e=>attachRemote(e.streams[0]);peer.onconnectionstatechange=()=>updateCallStatus(peer.connectionState);
- const offer=await peer.createOffer();await peer.setLocalDescription(offer);await signal({kind:"offer",to,type,offer:{type:offer.type,sdp:offer.sdp}});
-}
-async function onSignal(p){
- if(p.kind==="offer"){if(state.call)return;state.call={role:"callee",type:p.type,to:p.from,otherName:p.fromName||"NTalk user",status:"Incoming call",offer:p.offer};renderIncomingCall()}
- else if(p.kind==="answer"&&peer){await peer.setRemoteDescription(p.answer);await flushIce()}
- else if(p.kind==="ice"&&peer){if(peer.remoteDescription)await peer.addIceCandidate(p.candidate);else pendingIce.push(p.candidate)}
- else if(p.kind==="reject"||p.kind==="hangup")endCall(false);
-}
-async function acceptCall(){
- const c=state.call;
- try{localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:c.type==="video"});}catch(e){return alert(e.message)}
- peer=new RTCPeerConnection(rtcConfig());localStream.getTracks().forEach(t=>peer.addTrack(t,localStream));
- peer.onicecandidate=e=>e.candidate&&signal({kind:"ice",to:c.to,candidate:e.candidate});peer.ontrack=e=>attachRemote(e.streams[0]);peer.onconnectionstatechange=()=>updateCallStatus(peer.connectionState);
- await peer.setRemoteDescription(c.offer);await flushIce();const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await signal({kind:"answer",to:c.to,answer:{type:answer.type,sdp:answer.sdp}});c.status="Connecting…";showCallOverlay();
-}
-async function flushIce(){while(pendingIce.length)await peer.addIceCandidate(pendingIce.shift())}
-function attachRemote(stream){const v=document.getElementById("remoteVideo");if(v){v.srcObject=stream;v.play?.().catch(()=>{})}document.getElementById("remoteAvatar")?.classList.add("hidden")}
-function updateCallStatus(s){if(!state.call)return;state.call.status=s==="connected"?"Connected":s==="failed"?"Connection failed":state.call.status;const e=document.getElementById("callStatus");if(e)e.textContent=state.call.status}
-function showCallOverlay(){
- document.querySelector(".call-overlay")?.remove();const c=state.call,video=c.type==="video";
- app.insertAdjacentHTML("beforeend",`<div class="call-overlay ${video?"video":""}"><button class="close-call" onclick="endCall(true)">${ico("x")}</button><div class="call-main">${video?`<video id="remoteVideo" class="remote-video" autoplay playsinline></video><div id="remoteAvatar" class="video-avatar">${esc(avatarName(c.otherName))}</div><video id="localVideo" class="local-video" autoplay muted playsinline></video>`:`<div id="remoteAvatar" class="call-avatar">${esc(avatarName(c.otherName))}</div>`}<div class="call-title"><h1>${video?"Video Call":"Voice Call"}</h1><h2>${esc(c.otherName)}</h2><p id="callStatus">${esc(c.status)}</p></div><div class="call-controls"><button onclick="toggleMute(this)">${ico("mic")}</button>${video?`<button onclick="toggleCamera(this)">${ico("camera")}</button>`:""}<button class="end" onclick="endCall(true)">${ico("phone")}</button></div></div></div>`);
- if(video&&localStream){const v=document.getElementById("localVideo");v.srcObject=localStream;v.play?.().catch(()=>{})}
-}
-function renderIncomingCall(){
- document.querySelector(".call-overlay")?.remove();const c=state.call;
- app.insertAdjacentHTML("beforeend",`<div class="call-overlay incoming"><div class="incoming-card"><div class="call-avatar">${esc(avatarName(c.otherName))}</div><h2>${esc(c.otherName)}</h2><p>Incoming ${c.type==="video"?"video":"voice"} call</p><div class="incoming-actions"><button class="reject" onclick="rejectCall()">${ico("x")}</button><button class="accept" onclick="acceptCall()">${ico("check")}</button></div></div></div>`);
-}
-async function rejectCall(){const c=state.call;if(c)await signal({kind:"reject",to:c.to});endCall(false)}
-async function endCall(send=true){const c=state.call;if(send&&c?.to)await signal({kind:"hangup",to:c.to});try{peer?.close()}catch{}peer=null;localStream?.getTracks().forEach(t=>t.stop());localStream=null;pendingIce=[];state.call=null;document.querySelector(".call-overlay")?.remove()}
-function toggleMute(btn){const t=localStream?.getAudioTracks()[0];if(t){t.enabled=!t.enabled;btn.classList.toggle("muted",!t.enabled)}}
-function toggleCamera(btn){const t=localStream?.getVideoTracks()[0];if(t){t.enabled=!t.enabled;btn.classList.toggle("muted",!t.enabled)}}
-
-let deferredPrompt=null;
-window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPrompt=e});
-async function installApp(){if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null}else alert("Use the browser menu → Install app / Add to Home screen.")}
-
-async function initBackend(){await loadPeople();await loadChats();await subscribeMessageChannel();await initPresence();await setupSignaling()}
-function render(){
- document.body.dataset.theme=state.theme;
- if(!state.user){app.innerHTML=loginView();return}
- const center=state.page==="calls"?callsView():state.page==="groups"?groupsView():state.page==="profile"?profileView():chatList();
- app.innerHTML=`<div class="shell">${sidebar()}<main class="main">${center}${state.page==="chats"&&state.activeChat!==null?conversation():state.page==="chats"?`<div class="empty"><div class="logo">N</div><h2>Select a chat</h2><p>Open <b>People</b> to see all registered NTalk users.</p></div>`:""}</main></div>`;
- scrollMessages();
-}
-window.addEventListener("load",async()=>{
- if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js").catch(()=>{});
- if(hasSupabase){const {data}=await sb.auth.getSession();if(data.session){await loadProfile(data.session.user);await initBackend()}}
- render();
-});
+function profileView(){return `<section class="full-page profile"><header><h2>Profile</h2><button onclick="logout()" class="danger-text">Logout</button></header><div class="profile-top"><div class="profile-avatar">${esc(avatarName(meName()))}</div><h2>${esc(meName())}

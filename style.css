@@ -293,3 +293,22 @@ nav .ui-icon{width:20px;height:20px}.head-actions .ui-icon{width:18px;height:18p
 .m-add{background:var(--panel-soft);color:var(--accent2);font-weight:700;padding:10px 12px;border-radius:12px;text-align:left}
 .m-link{background:transparent;color:var(--accent2);font-size:12px;font-weight:700;padding:2px 6px}
 .modal h3{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* ---- profile photo, calls list, media viewer ---- */
+.avatar img,.profile-avatar img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.profile-avatar-wrap{position:relative;display:inline-block;cursor:pointer}
+.avatar-edit{position:absolute;right:-2px;bottom:-2px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:2px solid var(--bg)}
+.avatar-edit .ui-icon{width:18px;height:18px}
+.m-input{padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel-soft);color:var(--text);outline:none}
+.call-row{cursor:default}
+.call-actions{display:flex;gap:8px;margin-left:auto}
+.call-actions button{width:44px;height:44px;border-radius:50%;background:var(--panel-soft);color:var(--accent2);display:grid;place-items:center}
+.call-actions .ui-icon{width:20px;height:20px}
+.media-load{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:var(--panel-soft);color:var(--text);text-align:left}
+.media-load small{color:var(--muted)}
+video.media{max-width:100%;border-radius:12px}
+.media{cursor:pointer}
+.media-view{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:12px}
+.media-view img{max-width:100%;max-height:88dvh;border-radius:8px}
+.mv-close{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:14px;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.15);color:#fff;font-size:18px}
+.mv-save{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);padding:10px 22px;border-radius:999px;background:rgba(255,255,255,.18);color:#fff;font-weight:700;text-decoration:none}

@@ -267,3 +267,29 @@ nav .ui-icon{width:20px;height:20px}.head-actions .ui-icon{width:18px;height:18p
   .chat-row{padding:12px 8px}
   .chat-list{padding-top:14px}
 }
+
+/* ---- NTalk additions: groups, modal, toast, sender name ---- */
+.avatar .ui-icon{width:22px;height:22px}
+.avatar.group{background:linear-gradient(135deg,var(--accent3),var(--accent))}
+.avatar.sm{width:34px;height:34px;min-width:34px;font-size:14px}
+.sender-name{display:block;font-size:11px;color:var(--cyan);margin-bottom:3px}
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+.modal{width:100%;max-width:400px;max-height:85dvh;display:flex;flex-direction:column;gap:10px;background:var(--panel-solid);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:var(--shadow)}
+.modal h3{margin:0;font-size:18px}
+.modal .muted{margin:0;color:var(--muted);font-size:12px}
+.modal input#groupName{padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel-soft);color:var(--text);outline:none}
+.pick-list{overflow:auto;display:flex;flex-direction:column;gap:4px;min-height:60px}
+.pick-row{display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;cursor:pointer;color:var(--text)}
+.pick-row:hover{background:var(--panel-hover)}
+.pick-row input{width:18px;height:18px;accent-color:var(--accent)}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.modal-actions button{padding:10px 18px;border-radius:12px;font-weight:700}
+.m-cancel{background:var(--panel-soft);color:var(--muted)}
+.m-ok{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.toast{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:12px;right:12px;max-width:420px;margin:0 auto;z-index:300;display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:14px;background:var(--panel-solid);border:1px solid var(--line);box-shadow:var(--shadow);color:var(--text);cursor:pointer}
+.toast span{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick-row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-danger{background:transparent;color:var(--danger);font-weight:700;padding:8px 12px;border-radius:10px}
+.m-add{background:var(--panel-soft);color:var(--accent2);font-weight:700;padding:10px 12px;border-radius:12px;text-align:left}
+.m-link{background:transparent;color:var(--accent2);font-size:12px;font-weight:700;padding:2px 6px}
+.modal h3{display:flex;align-items:center;gap:6px;flex-wrap:wrap}

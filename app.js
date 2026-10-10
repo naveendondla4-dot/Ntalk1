@@ -2,6 +2,8 @@ const app = document.getElementById("app");
 const cfg = window.NTALK_CONFIG || {};
 const hasSupabase = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase);
 const sb = hasSupabase ? window.supabase.createClient(cfg.SUPABASE_URL.replace(/\/rest\/v1\/?$/,""), cfg.SUPABASE_ANON_KEY) : null;
+let recoveryMode = location.hash.includes("type=recovery");
+if(sb) sb.auth.onAuthStateChange(ev=>{ if(ev==="PASSWORD_RECOVERY"){ recoveryMode=true; render(); } });
 
 const state = {
   user: JSON.parse(localStorage.getItem("ntalk_user") || "null"),
@@ -18,7 +20,7 @@ const state = {
   theme: localStorage.getItem("ntalk_theme") || "dark",
   call: null
 };
-let peer = null, localStream = null, pendingIce = [];
+let peer = null, localStream = null, remoteStream = null, pendingIce = [];
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const uid = () => state.user?.id || "";
@@ -57,6 +59,7 @@ function loginView(){
  <label>Email</label><input id="email" type="email" autocomplete="email" placeholder="you@example.com">
  <label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Your password">
  <button class="primary wide" onclick="doLogin()">Login</button>
+ <button class="ghost wide" onclick="forgotPassword()">Forgot password?</button>
  <p class="muted center">${hasSupabase?"Connected to NTalk backend":"Supabase configuration missing"}</p>
  </section></main>`;
 }
@@ -70,6 +73,36 @@ function registerMode(){
  <button class="primary wide" onclick="doRegister()">Create account</button>
  <button class="ghost wide" onclick="render()">Back to login</button>
  </section></main>`;
+}
+async function forgotPassword(){
+ if(!hasSupabase)return alert("Supabase configuration missing.");
+ const typed=document.getElementById("email")?.value.trim()||"";
+ const email=(prompt("Enter your account email:",typed)||"").trim();
+ if(!email)return;
+ const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+ if(error)return alert(error.message);
+ alert("If this email has an account, a password reset link was sent. Open the link on this device.");
+}
+function resetView(){
+ return `<main class="auth"><section class="auth-card">
+ <div class="brand"><div class="logo">N</div><div><h1>NTalk</h1><p>Set a new password</p></div></div>
+ <label>New password</label><input id="newPass" type="password" autocomplete="new-password" placeholder="At least 6 characters">
+ <label>Confirm password</label><input id="newPass2" type="password" autocomplete="new-password" placeholder="Repeat password">
+ <button class="primary wide" onclick="doResetPassword()">Save new password</button>
+ </section></main>`;
+}
+async function doResetPassword(){
+ const p1=document.getElementById("newPass").value,p2=document.getElementById("newPass2").value;
+ if(p1.length<6)return alert("Password must be at least 6 characters.");
+ if(p1!==p2)return alert("Passwords do not match.");
+ const {error}=await sb.auth.updateUser({password:p1});
+ if(error)return alert(error.message);
+ recoveryMode=false;
+ history.replaceState(null,"",location.pathname);
+ const {data}=await sb.auth.getSession();
+ if(data.session){await loadProfile(data.session.user);await initBackend()}
+ alert("Password updated.");
+ render();
 }
 async function doLogin(){
  const email=document.getElementById("email").value.trim(), password=document.getElementById("password").value;
@@ -85,21 +118,22 @@ async function doRegister(){
  const email=document.getElementById("email").value.trim(), password=document.getElementById("password").value;
  if(!email||password.length<6)return alert("Enter a valid email and a password of 6+ characters.");
  if(!/^[a-z0-9_]{3,24}$/.test(username))return alert("Username: 3-24 characters, letters/numbers/underscore only.");
- const {data,error}=await sb.auth.signUp({email,password,options:{data:{display_name:name,username}}});
+ const {data,error}=await sb.auth.signUp({email,password,options:{data:{full_name:name,display_name:name,username}}});
  if(error)return alert(error.message);
  if(!data.user)return;
- const {error:pe}=await sb.from("profiles").upsert({id:data.user.id,username,display_name:name});
+ const {error:pe}=await sb.from("profiles").upsert({id:data.user.id,username,full_name:name});
  if(pe)return alert(pe.message);
  if(data.session){await loadProfile(data.user);await initBackend();render();}
  else alert("Account created. Email confirmation is currently enabled in Supabase, so confirm the email before login.");
 }
 async function loadProfile(user){
- const {data}=await sb.from("profiles").select("id,username,display_name,avatar_url").eq("id",user.id).maybeSingle();
- state.user={id:user.id,email:user.email,name:data?.display_name||user.user_metadata?.display_name||user.email.split("@")[0],username:"@"+(data?.username||user.user_metadata?.username||"user"),avatar_url:data?.avatar_url||null};
+ const {data}=await sb.from("profiles").select("*").eq("id",user.id).maybeSingle();
+ state.user={id:user.id,email:user.email,name:data?.display_name||data?.full_name||user.user_metadata?.display_name||user.email.split("@")[0],username:"@"+(data?.username||user.user_metadata?.username||"user"),avatar_url:data?.avatar_url||null};
  saveUser();
 }
 async function logout(){
- try{if(state.channel)await sb.removeChannel(state.channel);if(state.presence)await sb.removeChannel(state.presence);if(state.signal)await sb.removeChannel(state.signal);await sb.auth.signOut();}catch{}
+ try{if(state.channel)await sb.removeChannel(state.channel);if(state.presence)await sb.removeChannel(state.presence);if(state.signal)await sb.removeChannel(state.signal);if(state.typingCh)await sb.removeChannel(state.typingCh);await sb.auth.signOut();}catch{}
+ state.channel=null;state.channelUser=null;state.typingCh=null;state.typingUser=null;state.presence=null;state.signal=null;state.activeChat=null;state.page="chats";state.chatTab="chats";
  state.user=null; state.chats=[]; state.people=[]; state.messages=[]; localStorage.removeItem("ntalk_user"); endCall(false); render();
 }
 function setTheme(t){state.theme=t;localStorage.setItem("ntalk_theme",t);render()}
@@ -116,51 +150,64 @@ function sidebar(){
  <div class="side-user"><div class="avatar">${esc(avatarName(meName()))}</div><div><b>${esc(meName())}</b><small>${esc(state.user?.username||"@user")}</small></div></div></aside>`;
 }
 
+function visibleChats(){return state.chats.filter(c=>!c.is_group&&c.hasMsg)}
 function chatList(){
- const rows=state.chats.map((c,i)=>chatRow(c,i)).join("");
+ const rows=visibleChats().map(c=>chatRow(c,state.chats.indexOf(c))).join("");
  const people=state.people.map(p=>personRow(p)).join("");
  return `<section class="chat-list">
- <header class="list-head"><div><h2>${state.chatTab==="people"?"People":"Chats"}</h2><p>${state.chatTab==="people"?"Find NTalk users":"Your private conversations"}</p></div><button class="round" onclick="refreshDirectory()" title="Refresh">${ico("plus")}</button></header>
+ <header class="list-head"><div><h2>${state.chatTab==="people"?"People":"Chats"}</h2><p>${state.chatTab==="people"?"All registered NTalk users":"People you have messaged"}</p></div><button class="round" onclick="refreshDirectory()" title="Refresh">${ico("plus")}</button></header>
  <div class="search">${ico("search")}<input placeholder="${state.chatTab==="people"?"Search users...":"Search chats..."}" oninput="filterDirectory(this.value)"></div>
  <div class="list-tabs"><button class="${state.chatTab==="chats"?"active":""}" onclick="state.chatTab='chats';render()">Chats</button><button class="${state.chatTab==="people"?"active":""}" onclick="state.chatTab='people';render()">People</button></div>
- <div id="directoryRows">${state.chatTab==="people"?people:(rows||`<div class="empty-small">No conversations yet. Open <b>People</b> and choose a user.</div>`)}</div>
+ <div id="directoryRows">${state.chatTab==="people"?(people||`<div class="empty-small">No other users yet.</div>`):`<button class="chat-row" onclick="openGroupModal()"><div class="avatar group">${ico("users")}</div><div class="chat-info"><b>New group</b><span>Create a group chat</span></div></button>`+(rows||`<div class="empty-small">No conversations yet. Open <b>People</b> and choose a user.</div>`)}</div>
  </section>`;
 }
 function chatRow(c,i){
  return `<button class="chat-row" onclick="openChat(${i})"><div class="avatar ${c.online?"online":""}">${esc(avatarName(c.name))}</div><div class="chat-info"><b>${esc(c.name)}</b><span>${esc(c.msg||"Tap to chat")}</span></div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
 }
 function personRow(p){
- const existing=state.chats.find(c=>c.user_id===p.id);
+ const existing=state.chats.find(c=>!c.is_group&&c.user_id===p.id&&c.hasMsg);
  return `<button class="chat-row" onclick="startChatWith('${p.id}')"><div class="avatar ${p.online?"online":""}">${esc(avatarName(p.display_name))}</div><div class="chat-info"><b>${esc(p.display_name||p.username)}</b><span>@${esc(p.username)} · ${p.online?"Online":"Offline"}</span></div><div class="chat-meta"><small>${existing?"Chat":"New"}</small></div></button>`;
 }
 function filterDirectory(v){
  const q=v.toLowerCase();
  const el=document.getElementById("directoryRows"); if(!el)return;
  if(state.chatTab==="people") el.innerHTML=state.people.filter(p=>(p.display_name||"").toLowerCase().includes(q)||(p.username||"").toLowerCase().includes(q)).map(personRow).join("")||`<div class="empty-small">No users found.</div>`;
- else el.innerHTML=state.chats.filter(c=>(c.name||"").toLowerCase().includes(q)||(c.username||"").toLowerCase().includes(q)).map(c=>chatRow(c,state.chats.indexOf(c))).join("")||`<div class="empty-small">No chats found.</div>`;
+ else el.innerHTML=visibleChats().filter(c=>(c.name||"").toLowerCase().includes(q)||(c.username||"").toLowerCase().includes(q)).map(c=>chatRow(c,state.chats.indexOf(c))).join("")||`<div class="empty-small">No chats found.</div>`;
 }
 async function refreshDirectory(){await loadPeople();await loadChats();render()}
 async function loadPeople(){
  if(!hasSupabase||!uid())return;
- const {data,error}=await sb.from("profiles").select("id,username,display_name,avatar_url").neq("id",uid()).order("display_name");
+ const {data,error}=await sb.from("profiles").select("*").neq("id",uid());
  if(error){console.warn(error);return;}
- state.people=(data||[]).map(p=>({...p,online:false}));
+ state.people=(data||[]).map(p=>({...p,display_name:p.display_name||p.full_name||p.username,online:false})).sort((x,y)=>(x.display_name||"").localeCompare(y.display_name||""));
  updatePresenceFlags();
 }
 async function loadChats(){
  if(!hasSupabase||!uid())return;
- const {data,error}=await sb.rpc("my_chats");
- if(error){console.warn(error);return;}
- const seen=new Set(), result=[];
- for(const row of (data||[])){
-   if(seen.has(row.other_user_id))continue; seen.add(row.other_user_id);
-   const chatId=row.chat_id;
-   const person=state.people.find(p=>p.id===row.other_user_id);
-   const {data:last}=await sb.from("messages").select("content,message_type,created_at,file_name,sender_id").eq("chat_id",chatId).order("created_at",{ascending:false}).limit(1).maybeSingle();
-   result.push({id:chatId,user_id:row.other_user_id,name:person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:last?.content||(last?.message_type==="image"?"Photo":last?.message_type==="video"?"Video":last?"File":"Tap to chat"),time:last?.created_at||"",unread:0});
- }
+ const [pc,gc]=await Promise.all([sb.rpc("my_chats"),sb.rpc("my_groups")]);
+ if(pc.error)console.warn(pc.error);
+ if(gc.error)console.warn(gc.error);
+ const old=new Map(state.chats.map(c=>[c.id,c]));
+ const lastMsg=async id=>{const {data}=await sb.from("messages").select("content,message_type,created_at").eq("chat_id",id).order("created_at",{ascending:false}).limit(1).maybeSingle();return data};
+ const label=l=>l?(l.content||(l.message_type==="image"?"Photo":l.message_type==="video"?"Video":"File")):"";
+ const seen=new Set(), priv=[];
+ for(const r of (pc.data||[])){if(seen.has(r.other_user_id))continue;seen.add(r.other_user_id);priv.push(r)}
+ const groups=gc.data||[];
+ const lasts=await Promise.all([...priv.map(r=>lastMsg(r.chat_id)),...groups.map(g=>lastMsg(g.chat_id))]);
+ const result=[];
+ priv.forEach((r,i)=>{
+   const person=state.people.find(p=>p.id===r.other_user_id), last=lasts[i], o=old.get(r.chat_id);
+   result.push({id:r.chat_id,is_group:false,user_id:r.other_user_id,name:person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:label(last)||"Tap to chat",time:last?.created_at||"",hasMsg:!!last||!!o?.hasMsg,unread:o?.unread||0});
+ });
+ groups.forEach((g,gi)=>{
+   const last=lasts[priv.length+gi], o=old.get(g.chat_id);
+   result.push({id:g.chat_id,is_group:true,name:g.name,members:Number(g.member_count)||0,created_by:g.created_by,msg:label(last)||"Group created",time:last?.created_at||"",hasMsg:true,unread:o?.unread||0});
+ });
+ result.sort((a,b)=>String(b.time||"").localeCompare(String(a.time||"")));
+ const activeId=state.chats[state.activeChat]?.id;
  state.chats=result;
- updatePresenceFlags();
+ if(activeId){const k=result.findIndex(c=>c.id===activeId);state.activeChat=k>=0?k:null}
+ updatePresenceFlags();updateBadge();
 }
 function updatePresenceFlags(){
  const online=new Set(state.onlineUsers||[]);
@@ -168,44 +215,51 @@ function updatePresenceFlags(){
  state.people.forEach(p=>p.online=online.has(p.id));
 }
 async function startChatWith(userId){
- let c=state.chats.find(x=>x.user_id===userId);
+ let c=state.chats.find(x=>!x.is_group&&x.user_id===userId);
  if(!c){
    const {data:chatId,error}=await sb.rpc("get_or_create_private_chat",{other_user:userId});
    if(error)return alert(error.message);
    const p=state.people.find(x=>x.id===userId);
    c=state.chats.find(x=>x.id===chatId);
    if(!c){
-     c={id:chatId,user_id:userId,name:p?.display_name||"NTalk User",username:p?"@"+p.username:"",online:p?.online||false,msg:"Tap to chat",time:"",unread:0};
+     c={id:chatId,is_group:false,user_id:userId,name:p?.display_name||"NTalk User",username:p?"@"+p.username:"",online:p?.online||false,msg:"Tap to chat",time:"",hasMsg:false,unread:0};
      state.chats.unshift(c);
    }
  }
+ state.page="chats";
  state.activeChat=state.chats.indexOf(c);
  state.chatTab="chats";
  await loadMessages(c);
  subscribeMessageChannel();
  render(); scrollMessages();
 }
-async function openChat(i){state.activeChat=i;await loadMessages(state.chats[i]);subscribeMessageChannel();render();scrollMessages()}
+async function openChat(i){const c=state.chats[i];if(!c)return;c.unread=0;state.activeChat=i;await loadMessages(c);subscribeMessageChannel();updateBadge();render();scrollMessages()}
+function openChatById(id){const i=state.chats.findIndex(c=>c.id===id);if(i<0)return;state.page=state.chats[i].is_group?"groups":"chats";state.chatTab="chats";openChat(i)}
+const senderName=id=>state.people.find(p=>p.id===id)?.display_name||"Member";
 
 function conversation(){
  const c=state.chats[state.activeChat];
- if(!c)return `<div class="empty"><div class="logo">N</div><h2>Choose a person</h2><p>Open People to start a private chat.</p></div>`;
+ if(!c)return `<div class="empty"><div class="logo">N</div><h2>Choose a chat</h2><p>Open People to start a private chat.</p></div>`;
+ const sub=c.is_group?`${c.members||""} members`:(c.typing?"typing…":c.online?"● Online":"Offline");
+ const calls=c.is_group?"":`<button onclick="startCall('voice')">${ico("phone")}</button><button onclick="startCall('video')">${ico("video")}</button>`;
  return `<section class="conversation"><header class="chat-head"><button class="mobile-back" onclick="state.activeChat=null;render()">‹</button>
- <div class="avatar ${c.online?"online":""}">${esc(avatarName(c.name))}</div><div><b>${esc(c.name)}</b><small>${c.typing?"typing…":c.online?"● Online":"Offline"}</small></div>
- <div class="head-actions"><button onclick="startCall('voice')">${ico("phone")}</button><button onclick="startCall('video')">${ico("video")}</button><button onclick="chatInfo()">${ico("more")}</button></div></header>
+ <div class="avatar ${c.online&&!c.is_group?"online":""}">${c.is_group?ico("users"):esc(avatarName(c.name))}</div><div><b>${esc(c.name)}</b><small>${esc(sub)}</small></div>
+ <div class="head-actions">${calls}<button onclick="chatInfo()">${ico("more")}</button></div></header>
  <div id="messages" class="messages">${state.messages.map(messageBubble).join("")||`<div class="empty-chat">No messages yet. Say hello 👋</div>`}</div>
  <form class="composer" onsubmit="sendMessage(event)"><button type="button" onclick="emoji()">${ico("smile")}</button><input id="msg" autocomplete="off" placeholder="Type a message..." oninput="typingChanged(this.value)"><label class="attach" title="Attach">${ico("attach")}<input id="file" type="file" hidden onchange="uploadMedia(this.files[0])"></label><button class="send" type="submit">${ico("send")}</button></form>
  </section>`;
 }
 function messageBubble(m){
  const mine=m.sender_id===uid();
+ const c=state.chats[state.activeChat];
  let body=esc(m.content||"");
  if(m.file_path){
    const label=esc(m.file_name||"Attachment");
    body=m.mime_type?.startsWith("image/")?`<img class="media" src="${esc(m._url||"")}" alt="${label}">`:`<a href="${esc(m._url||"#")}" target="_blank" rel="noopener">${ico("attach")} ${label}</a>`;
  }
+ const who=(!mine&&c?.is_group)?`<b class="sender-name">${esc(senderName(m.sender_id))}</b>`:"";
  const stateIcon=mine?(m.seen_at?"✓✓":m.delivered_at?"✓✓":"✓"):"";
- return `<div class="bubble ${mine?"me":"them"}">${body}<small>${fmt(m.created_at)} ${stateIcon}</small></div>`;
+ return `<div class="bubble ${mine?"me":"them"}">${who}${body}<small>${fmt(m.created_at)} ${stateIcon}</small></div>`;
 }
 async function signedUrl(path){
  const {data,error}=await sb.storage.from("ntalk-media").createSignedUrl(path,3600);
@@ -224,13 +278,13 @@ async function sendMessage(e){
  e.preventDefault();
  const input=document.getElementById("msg"), text=input.value.trim(), c=state.chats[state.activeChat];
  if(!text||!c)return;
- const {data,error}=await sb.from("messages").insert({chat_id:c.id,sender_id:uid(),content:text,message_type:"text"}).select().single();
+ const {data,error}=await sb.from("messages").insert({chat_id:c.id,sender_id:uid(),receiver_id:c.is_group?null:c.user_id,content:text,message_type:"text"}).select().single();
  if(error)return alert(error.message);
- state.messages.push(data); c.msg=text;c.time=data.created_at;input.value="";await notifyTyping(false);render();scrollMessages();
+ state.messages.push(data); c.msg=text;c.time=data.created_at;c.hasMsg=true;input.value="";await notifyTyping(false);render();scrollMessages();
 }
 function scrollMessages(){setTimeout(()=>{const m=document.getElementById("messages");if(m)m.scrollTop=m.scrollHeight},40)}
 function emoji(){const i=document.getElementById("msg");if(i){i.value+=" 😊";i.focus();typingChanged(i.value)}}
-function chatInfo(){const c=state.chats[state.activeChat];if(c)alert(`${c.name}\n${c.username||""}`)}
+function chatInfo(){const c=state.chats[state.activeChat];if(!c)return;if(c.is_group)return groupInfo();alert(`${c.name}\n${c.username||""}`)}
 
 async function uploadMedia(file){
  const c=state.chats[state.activeChat];if(!file||!c)return;
@@ -238,39 +292,168 @@ async function uploadMedia(file){
  const {error}=await sb.storage.from("ntalk-media").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});
  if(error)return alert(error.message);
  const type=file.type.startsWith("image/")?"image":file.type.startsWith("video/")?"video":file.type.startsWith("audio/")?"audio":"file";
- const {data,error:me}=await sb.from("messages").insert({chat_id:c.id,sender_id:uid(),content:"",message_type:type,file_path:path,file_name:file.name,file_size:file.size,mime_type:file.type}).select().single();
+ const {data,error:me}=await sb.from("messages").insert({chat_id:c.id,sender_id:uid(),receiver_id:c.is_group?null:c.user_id,content:"",message_type:type,file_path:path,file_name:file.name,file_size:file.size,mime_type:file.type}).select().single();
  if(me)return alert(me.message);
- data._url=await signedUrl(path);state.messages.push(data);c.msg=type==="image"?"Photo":type==="video"?"Video":"File";c.time=data.created_at;render();scrollMessages();
+ data._url=await signedUrl(path);state.messages.push(data);c.msg=type==="image"?"Photo":type==="video"?"Video":"File";c.time=data.created_at;c.hasMsg=true;render();scrollMessages();
 }
 
 async function subscribeMessageChannel(){
  if(!hasSupabase||!uid())return;
+ if(state.channel&&state.channelUser===uid())return;
  if(state.channel)await sb.removeChannel(state.channel);
+ state.channelUser=uid();
  state.channel=sb.channel("ntalk-messages-"+uid())
  .on("postgres_changes",{event:"INSERT",schema:"public",table:"messages"},async payload=>{
    const m=payload.new;
-   const c=state.chats.find(x=>x.id===m.chat_id);
-   if(!c||m.sender_id===uid())return;
-   if(state.activeChat!==null&&c.id===state.chats[state.activeChat]?.id){
-     if(m.file_path)m._url=await signedUrl(m.file_path);
-     state.messages.push(m);
-     await sb.from("messages").update({delivered_at:new Date().toISOString(),seen_at:new Date().toISOString()}).eq("id",m.id);
-     render();scrollMessages();
+   if(m.sender_id===uid())return;
+   let c=state.chats.find(x=>x.id===m.chat_id);
+   if(!c){await loadChats();c=state.chats.find(x=>x.id===m.chat_id)}
+   if(!c)return;
+   c.hasMsg=true;
+   const isOpen=state.activeChat!==null&&state.chats[state.activeChat]?.id===c.id;
+   const visible=isOpen&&!document.hidden;
+   if(m.file_path)m._url=await signedUrl(m.file_path);
+   if(isOpen)state.messages.push(m);
+   c.msg=m.content||(m.message_type==="image"?"Photo":m.message_type==="video"?"Video":"File");
+   c.time=m.created_at;
+   if(visible){
+     sb.from("messages").update({delivered_at:new Date().toISOString(),seen_at:new Date().toISOString()}).eq("id",m.id).then(()=>{});
    }else{
-     c.unread=(c.unread||0)+1;c.msg=m.content||"Media";c.time=m.created_at;render();
+     c.unread=(c.unread||0)+1;
+     notifyIncoming(c,m);
    }
+   updateBadge();render();if(visible)scrollMessages();
  })
+ .subscribe();
+}
+async function setupTyping(){
+ if(!hasSupabase||!uid())return;
+ if(state.typingCh&&state.typingUser===uid())return;
+ if(state.typingCh)await sb.removeChannel(state.typingCh);
+ state.typingUser=uid();
+ state.typingCh=sb.channel("ntalk-typing",{config:{broadcast:{self:false}}})
  .on("broadcast",{event:"typing"},({payload})=>{
-   const c=state.chats.find(x=>x.id===payload.chat_id);
-   if(c&&payload.from!==uid()){c.typing=!!payload.value;if(state.activeChat!==null&&state.chats[state.activeChat]?.id===c.id)render()}
+   if(!payload||payload.from===uid())return;
+   const c=state.chats.find(x=>x.id===payload.chat_id&&!x.is_group);
+   if(!c)return;
+   c.typing=!!payload.value;
+   clearTimeout(c._tt);if(c.typing)c._tt=setTimeout(()=>{c.typing=false;if(state.chats[state.activeChat]?.id===c.id)render()},3000);
+   if(state.activeChat!==null&&state.chats[state.activeChat]?.id===c.id)render();
  })
  .subscribe();
 }
 async function notifyTyping(value){
- const c=state.chats[state.activeChat];if(!state.channel||!c)return;
- await state.channel.send({type:"broadcast",event:"typing",payload:{from:uid(),chat_id:c.id,value}});
+ const c=state.chats[state.activeChat];if(!state.typingCh||!c||c.is_group)return;
+ try{await state.typingCh.send({type:"broadcast",event:"typing",payload:{from:uid(),chat_id:c.id,value}})}catch{}
 }
 function typingChanged(v){clearTimeout(state.typingTimer);notifyTyping(!!v);if(v)state.typingTimer=setTimeout(()=>notifyTyping(false),1200)}
+
+/* ---------- notifications ---------- */
+function updateBadge(){const n=state.chats.reduce((t,c)=>t+(c.unread||0),0);document.title=(n?`(${n}) `:"")+"NTalk"}
+function playBeep(){try{const a=new (window.AudioContext||window.webkitAudioContext)();const o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.setValueAtTime(.15,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.25);o.start();o.stop(a.currentTime+.25)}catch{}}
+function showToast(title,body,chatId){
+ document.getElementById("ntToast")?.remove();
+ const t=document.createElement("div");t.id="ntToast";t.className="toast";
+ t.innerHTML=`<b>${esc(title)}</b><span>${esc(body)}</span>`;
+ t.onclick=()=>{t.remove();openChatById(chatId)};
+ document.body.appendChild(t);setTimeout(()=>t.remove(),5000);
+}
+async function notifyIncoming(c,m){
+ const who=c.is_group?`${senderName(m.sender_id)} · ${c.name}`:c.name;
+ const body=m.content||(m.message_type==="image"?"📷 Photo":m.message_type==="video"?"🎥 Video":"📎 File");
+ playBeep();
+ if(document.hidden&&"Notification" in window&&Notification.permission==="granted"){
+   try{
+     const reg=await navigator.serviceWorker?.getRegistration();
+     if(reg)reg.showNotification(who,{body,icon:"icon.svg",badge:"icon.svg",tag:c.id,renotify:true,data:{chat_id:c.id}});
+     else new Notification(who,{body,icon:"icon.svg"});
+   }catch{}
+ }else showToast(who,body,c.id);
+}
+async function enableNotifications(){
+ if(!("Notification" in window))return alert("This browser does not support notifications.");
+ if(Notification.permission==="denied")return alert("Notifications are blocked. Enable them in the browser's site settings.");
+ const r=await Notification.requestPermission();
+ alert(r==="granted"?"Notifications enabled.":"Notifications not enabled.");
+ render();
+}
+const notifStatus=()=>!("Notification" in window)?"Unsupported":Notification.permission==="granted"?"On":Notification.permission==="denied"?"Blocked":"Off";
+
+/* ---------- groups ---------- */
+function groupsView(){
+ const rows=state.chats.map((c,i)=>c.is_group?groupRow(c,i):"").join("");
+ return `<section class="chat-list"><header class="list-head"><div><h2>Groups</h2><p>Chat with many people</p></div><button class="round" onclick="openGroupModal()" title="New group">${ico("plus")}</button></header><div id="directoryRows">${rows||`<div class="empty-small">No groups yet. Tap <b>+</b> to create one.</div>`}</div></section>`;
+}
+function groupRow(c,i){
+ return `<button class="chat-row" onclick="openChat(${i})"><div class="avatar group">${ico("users")}</div><div class="chat-info"><b>${esc(c.name)}</b><span>${esc(c.msg||"Group created")}</span></div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
+}
+function closeModal(){document.getElementById("modalRoot")?.remove()}
+function openGroupModal(){
+ closeModal();
+ const list=state.people.map(p=>`<label class="pick-row"><input type="checkbox" value="${p.id}"><div class="avatar sm">${esc(avatarName(p.display_name))}</div><span>${esc(p.display_name||p.username)}</span></label>`).join("")||`<div class="empty-small">No other users yet.</div>`;
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>New group</h3><input id="groupName" maxlength="60" placeholder="Group name"><p class="muted">Select members</p><div class="pick-list">${list}</div><div class="modal-actions"><button class="m-cancel" onclick="closeModal()">Cancel</button><button class="m-ok" onclick="createGroup()">Create</button></div></div></div>`);
+}
+async function createGroup(){
+ const name=document.getElementById("groupName").value.trim();
+ const ids=[...document.querySelectorAll("#modalRoot .pick-list input:checked")].map(x=>x.value);
+ if(!name)return alert("Enter a group name.");
+ if(!ids.length)return alert("Select at least one member.");
+ const {data:gid,error}=await sb.rpc("create_group",{group_name:name,member_ids:ids});
+ if(error)return alert(error.message);
+ closeModal();
+ await loadChats();
+ state.page="groups";
+ const i=state.chats.findIndex(c=>c.id===gid);
+ if(i>=0)await openChat(i);else render();
+}
+async function groupInfo(){
+ const c=state.chats[state.activeChat];if(!c||!c.is_group)return;
+ const {data,error}=await sb.rpc("group_members",{cid:c.id});
+ if(error)return alert(error.message);
+ const admin=c.created_by===uid();
+ state._gm=data||[];
+ const rows=state._gm.map(m=>`<div class="pick-row"><div class="avatar sm">${esc(avatarName(m.full_name||m.username))}</div><span class="grow">${esc(m.full_name||m.username)}${m.user_id===uid()?" (You)":""}${m.user_id===c.created_by?" · Admin":""}</span>${admin&&m.user_id!==uid()?`<button class="m-danger" onclick="removeMember('${m.user_id}')">Remove</button>`:""}</div>`).join("");
+ closeModal();
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>${esc(c.name)}${admin?` <button class="m-link" onclick="renameGroup()">Rename</button>`:""}</h3><p class="muted">${state._gm.length} members</p>${admin?`<button class="m-add" onclick="addMembersModal()">＋ Add members</button>`:""}<div class="pick-list">${rows}</div><div class="modal-actions"><button class="m-danger" onclick="leaveGroup()">Leave group</button><button class="m-ok" onclick="closeModal()">Close</button></div></div></div>`);
+}
+async function addMembersModal(){
+ const c=state.chats[state.activeChat];if(!c)return;
+ const inGroup=new Set((state._gm||[]).map(m=>m.user_id));
+ const list=state.people.filter(p=>!inGroup.has(p.id)).map(p=>`<label class="pick-row"><input type="checkbox" value="${p.id}"><div class="avatar sm">${esc(avatarName(p.display_name))}</div><span>${esc(p.display_name||p.username)}</span></label>`).join("")||`<div class="empty-small">Everyone is already in this group.</div>`;
+ closeModal();
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>Add members</h3><div class="pick-list">${list}</div><div class="modal-actions"><button class="m-cancel" onclick="groupInfo()">Back</button><button class="m-ok" onclick="doAddMembers()">Add</button></div></div></div>`);
+}
+async function doAddMembers(){
+ const c=state.chats[state.activeChat];if(!c)return;
+ const ids=[...document.querySelectorAll("#modalRoot .pick-list input:checked")].map(x=>x.value);
+ if(!ids.length)return alert("Select at least one person.");
+ const {error}=await sb.rpc("add_group_members",{cid:c.id,member_ids:ids});
+ if(error)return alert(error.message);
+ await loadChats();render();groupInfo();
+}
+async function removeMember(userId){
+ const c=state.chats[state.activeChat];if(!c)return;
+ if(!confirm("Remove this member from the group?"))return;
+ const {error}=await sb.rpc("remove_group_member",{cid:c.id,member:userId});
+ if(error)return alert(error.message);
+ await loadChats();render();groupInfo();
+}
+async function renameGroup(){
+ const c=state.chats[state.activeChat];if(!c)return;
+ const name=(prompt("New group name:",c.name)||"").trim();
+ if(!name||name===c.name)return;
+ const {error}=await sb.rpc("rename_group",{cid:c.id,new_name:name});
+ if(error)return alert(error.message);
+ await loadChats();render();groupInfo();
+}
+async function leaveGroup(){
+ const c=state.chats[state.activeChat];if(!c)return;
+ if(!confirm("Leave this group?"))return;
+ const {error}=await sb.rpc("leave_group",{cid:c.id});
+ if(error)return alert(error.message);
+ closeModal();state.activeChat=null;state.messages=[];
+ await loadChats();render();
+}
 
 async function initPresence(){
  if(!hasSupabase||!uid())return;
@@ -284,5 +467,79 @@ async function initPresence(){
 }
 
 function callsView(){return `<section class="full-page"><header><h2>Calls</h2></header><div class="call-card"><div class="avatar">${ico("phone")}</div><div><b>Voice & Video Calls</b><small>Select a person from People, open the chat, then use the call buttons.</small></div></div></section>`}
-function groupsView(){return `<section class="full-page"><header><h2>Groups</h2></header><div class="group-card"><div class="avatar">${ico("users")}</div><div><b>Groups</b><small>Private 1-to-1 chat is fully connected. Group chat can be added on the same backend next.</small></div></div></section>`}
-function profileView(){return `<section class="full-page profile"><header><h2>Profile</h2><button onclick="logout()" class="danger-text">Logout</button></header><div class="profile-top"><div class="profile-avatar">${esc(avatarName(meName()))}</div><h2>${esc(meName())}
+function profileView(){return `<section class="full-page profile"><header><h2>Profile</h2><button onclick="logout()" class="danger-text">Logout</button></header><div class="profile-top"><div class="profile-avatar">${esc(avatarName(meName()))}</div><h2>${esc(meName())}</h2><p>${esc(state.user?.username||"@user")}</p><span class="status">Online</span></div><div class="settings-card"><button onclick="installApp()">Install NTalk <span>${ico("download")}</span></button><button onclick="enableNotifications()">Notifications: ${notifStatus()} <span>${ico("chat")}</span></button><button onclick="toggleTheme()">Appearance: ${state.theme==="dark"?"Dark":"Light"} <span>${ico("theme")}</span></button><button onclick="alert('Email: '+state.user.email)">Account <span>${ico("user")}</span></button></div></section>`}
+
+function rtcConfig(){
+ const ice=[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:stun1.l.google.com:19302"}];
+ if(cfg.TURN_URL){const urls=String(cfg.TURN_URL).split(",").map(x=>x.trim()).filter(Boolean);ice.push({urls,username:cfg.TURN_USERNAME,credential:cfg.TURN_CREDENTIAL})}
+ return {iceServers:ice};
+}
+async function setupSignaling(){
+ if(!hasSupabase||!state.user)return;
+ if(state.signal)await sb.removeChannel(state.signal);
+ state.signal=sb.channel("ntalk-call-signal",{config:{broadcast:{self:false}}});
+ state.signal.on("broadcast",{event:"call"},async({payload})=>{if(payload.to===uid())await onSignal(payload)}).subscribe();
+}
+async function signal(payload){if(state.signal)await state.signal.send({type:"broadcast",event:"call",payload:{...payload,from:uid(),fromName:meName()}})}
+function callTarget(){return state.chats[state.activeChat]?.user_id}
+async function startCall(type){
+ const to=callTarget();if(!to)return alert("Open a chat first.");
+ if(!navigator.mediaDevices?.getUserMedia)return alert("Microphone/camera access is unavailable. Use HTTPS.");
+ try{localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:type==="video"});}catch(e){return alert("Permission denied or device media is unavailable: "+e.message)}
+ state.call={role:"caller",type,to,otherName:state.chats[state.activeChat].name,status:"Calling…"};showCallOverlay();
+ peer=new RTCPeerConnection(rtcConfig());localStream.getTracks().forEach(t=>peer.addTrack(t,localStream));
+ peer.onicecandidate=e=>e.candidate&&signal({kind:"ice",to,candidate:e.candidate});peer.ontrack=e=>attachRemote(e.streams[0]);peer.onconnectionstatechange=()=>updateCallStatus(peer.connectionState);
+ const offer=await peer.createOffer();await peer.setLocalDescription(offer);await signal({kind:"offer",to,type,offer:{type:offer.type,sdp:offer.sdp}});
+}
+async function onSignal(p){
+ if(p.kind==="offer"){if(state.call)return;state.call={role:"callee",type:p.type,to:p.from,otherName:p.fromName||"NTalk user",status:"Incoming call",offer:p.offer};renderIncomingCall()}
+ else if(p.kind==="answer"&&peer){await peer.setRemoteDescription(p.answer);await flushIce()}
+ else if(p.kind==="ice"){if(peer&&peer.remoteDescription)await peer.addIceCandidate(p.candidate);else pendingIce.push(p.candidate)}
+ else if(p.kind==="reject"||p.kind==="hangup")endCall(false);
+}
+async function acceptCall(){
+ const c=state.call;
+ try{localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:c.type==="video"});}catch(e){return alert(e.message)}
+ peer=new RTCPeerConnection(rtcConfig());localStream.getTracks().forEach(t=>peer.addTrack(t,localStream));
+ peer.onicecandidate=e=>e.candidate&&signal({kind:"ice",to:c.to,candidate:e.candidate});peer.ontrack=e=>attachRemote(e.streams[0]);peer.onconnectionstatechange=()=>updateCallStatus(peer.connectionState);
+ c.status="Connecting…";showCallOverlay();await peer.setRemoteDescription(c.offer);await flushIce();const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await signal({kind:"answer",to:c.to,answer:{type:answer.type,sdp:answer.sdp}});
+}
+async function flushIce(){while(pendingIce.length)await peer.addIceCandidate(pendingIce.shift())}
+function attachRemote(stream){if(stream)remoteStream=stream;const v=document.getElementById("remoteVideo");if(v&&remoteStream){v.srcObject=remoteStream;v.play?.().catch(()=>{});if(remoteStream.getVideoTracks().length)document.getElementById("remoteAvatar")?.classList.add("hidden")}}
+function updateCallStatus(s){if(!state.call)return;state.call.status=s==="connected"?"Connected":s==="failed"?"Connection failed":state.call.status;const e=document.getElementById("callStatus");if(e)e.textContent=state.call.status}
+function showCallOverlay(){
+ document.querySelector(".call-overlay")?.remove();const c=state.call,video=c.type==="video";
+ app.insertAdjacentHTML("beforeend",`<div class="call-overlay ${video?"video":""}"><button class="close-call" onclick="endCall(true)">${ico("x")}</button><div class="call-main">${video?`<video id="remoteVideo" class="remote-video" autoplay playsinline></video><div id="remoteAvatar" class="video-avatar">${esc(avatarName(c.otherName))}</div><video id="localVideo" class="local-video" autoplay muted playsinline></video>`:`<audio id="remoteVideo" autoplay playsinline></audio><div id="remoteAvatar" class="call-avatar">${esc(avatarName(c.otherName))}</div>`}<div class="call-title"><h1>${video?"Video Call":"Voice Call"}</h1><h2>${esc(c.otherName)}</h2><p id="callStatus">${esc(c.status)}</p></div><div class="call-controls"><button onclick="toggleMute(this)">${ico("mic")}</button>${video?`<button onclick="toggleCamera(this)">${ico("camera")}</button>`:""}<button class="end" onclick="endCall(true)">${ico("phone")}</button></div></div></div>`);
+ if(video&&localStream){const v=document.getElementById("localVideo");v.srcObject=localStream;v.play?.().catch(()=>{})}
+ attachRemote();
+}
+function renderIncomingCall(){
+ document.querySelector(".call-overlay")?.remove();const c=state.call;
+ app.insertAdjacentHTML("beforeend",`<div class="call-overlay incoming"><div class="incoming-card"><div class="call-avatar">${esc(avatarName(c.otherName))}</div><h2>${esc(c.otherName)}</h2><p>Incoming ${c.type==="video"?"video":"voice"} call</p><div class="incoming-actions"><button class="reject" onclick="rejectCall()">${ico("x")}</button><button class="accept" onclick="acceptCall()">${ico("check")}</button></div></div></div>`);
+}
+async function rejectCall(){const c=state.call;if(c)await signal({kind:"reject",to:c.to});endCall(false)}
+async function endCall(send=true){const c=state.call;if(send&&c?.to)await signal({kind:"hangup",to:c.to});try{peer?.close()}catch{}peer=null;localStream?.getTracks().forEach(t=>t.stop());localStream=null;remoteStream=null;pendingIce=[];state.call=null;document.querySelector(".call-overlay")?.remove()}
+function toggleMute(btn){const t=localStream?.getAudioTracks()[0];if(t){t.enabled=!t.enabled;btn.classList.toggle("muted",!t.enabled)}}
+function toggleCamera(btn){const t=localStream?.getVideoTracks()[0];if(t){t.enabled=!t.enabled;btn.classList.toggle("muted",!t.enabled)}}
+
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPrompt=e});
+async function installApp(){if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null}else alert("Use the browser menu → Install app / Add to Home screen.")}
+
+async function initBackend(){await loadPeople();await loadChats();await subscribeMessageChannel();await setupTyping();await initPresence();await setupSignaling()}
+function render(){
+ const _k=document.getElementById("msg"),_kv=_k?_k.value:"",_kf=!!_k&&document.activeElement===_k;
+ document.body.dataset.theme=state.theme;
+ if(recoveryMode){app.innerHTML=resetView();return}
+ if(!state.user){app.innerHTML=loginView();return}
+ const center=state.page==="calls"?callsView():state.page==="groups"?groupsView():state.page==="profile"?profileView():chatList();
+ app.innerHTML=`<div class="shell">${sidebar()}<main class="main">${center}${(state.page==="chats"||state.page==="groups")&&state.activeChat!==null?conversation():state.page==="groups"?`<div class="empty"><div class="logo">N</div><h2>Select a group</h2><p>Or tap <b>+</b> to create a new one.</p></div>`:state.page==="chats"?`<div class="empty"><div class="logo">N</div><h2>Select a chat</h2><p>Open <b>People</b> to see all registered NTalk users.</p></div>`:""}</main></div>`;
+ const _n=document.getElementById("msg");if(_n&&_kv){_n.value=_kv;if(_kf)_n.focus()}
+ scrollMessages();
+}
+window.addEventListener("load",async()=>{
+ if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});navigator.serviceWorker.addEventListener("message",e=>{if(e.data?.type==="open_chat")openChatById(e.data.chat_id)})}
+ document.addEventListener("click",()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().catch(()=>{})},{once:true});
+ if(hasSupabase){const {data}=await sb.auth.getSession();if(data.session&&!recoveryMode){await loadProfile(data.session.user);await initBackend()}}
+ render();
+});

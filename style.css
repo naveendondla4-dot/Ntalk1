@@ -312,3 +312,71 @@ video.media{max-width:100%;border-radius:12px}
 .media-view img{max-width:100%;max-height:88dvh;border-radius:8px}
 .mv-close{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:14px;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.15);color:#fff;font-size:18px}
 .mv-save{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);padding:10px 22px;border-radius:999px;background:rgba(255,255,255,.18);color:#fff;font-weight:700;text-decoration:none}
+
+/* ===== NTalk features: ticks, reply, status, story, profile card ===== */
+.tick{margin-left:3px;font-size:11px;letter-spacing:-2px;color:rgba(255,255,255,.6)}
+.tick.seen{color:#4ade80;font-weight:700}
+.bubble{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.bubble.flash{animation:flashMsg 1.2s ease}
+@keyframes flashMsg{0%,100%{filter:none}30%{filter:brightness(1.55)}}
+.quote{display:block;border-left:3px solid #4ade80;background:rgba(0,0,0,.18);border-radius:8px;padding:5px 8px;margin-bottom:6px;cursor:pointer;max-width:100%}
+.quote b{display:block;font-size:11px;color:#4ade80}
+.quote span{display:block;font-size:12px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reply-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel-solid);border-top:1px solid var(--line)}
+.reply-bar .rb-body{flex:1;min-width:0;border-left:3px solid var(--accent2);padding-left:8px}
+.reply-bar b{display:block;font-size:12px;color:var(--accent2)}
+.reply-bar span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reply-bar button{background:transparent;color:var(--muted);font-size:20px;padding:4px 8px}
+.chat-head .avatar,.chat-head .hd-name{cursor:pointer}
+.menu-btn{display:block;width:100%;text-align:left;padding:14px 12px;border-radius:12px;background:var(--panel-soft);color:var(--text);font-weight:600;margin-bottom:6px}
+/* profile card */
+.pc-photo{width:100%;max-width:260px;aspect-ratio:1/1;object-fit:cover;border-radius:20px;display:block;margin:0 auto;cursor:pointer}
+.pc-letter{width:100%;max-width:260px;aspect-ratio:1/1;border-radius:20px;margin:0 auto;display:grid;place-items:center;font-size:90px;font-weight:800;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2))}
+.pc-name{text-align:center;margin:6px 0 0;font-size:20px}
+.pc-sub{text-align:center;margin:0;color:var(--muted);font-size:13px}
+.pc-seen{text-align:center;margin:4px 0 0;color:var(--success);font-size:13px}
+/* status row */
+.st-row{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 10px;margin-bottom:6px;scrollbar-width:none}
+.st-row::-webkit-scrollbar{display:none}
+.st-item{flex:0 0 auto;width:62px;text-align:center;cursor:pointer;position:relative}
+.st-item span.nm{display:block;margin-top:4px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-ring{width:58px;height:58px;border-radius:50%;padding:3px;box-sizing:border-box;border:2px solid var(--line);margin:0 auto}
+.st-ring.unseen{border-color:#22c55e}
+.st-ring.seen{border-color:#8a8d98}
+.st-ring .avatar{width:100%;height:100%;min-width:0;font-size:20px}
+.st-plus{position:absolute;right:2px;top:36px;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:800;font-size:14px;line-height:20px;text-align:center;border:2px solid var(--bg)}
+/* status composer */
+.st-choose{display:flex;gap:10px}
+.st-big{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 8px;border-radius:16px;background:var(--panel-soft);color:var(--text);font-weight:700;cursor:pointer}
+.st-big .ui-icon{width:26px;height:26px}
+.st-preview{width:100%;max-height:300px;object-fit:contain;border-radius:12px;background:#000}
+.st-textarea{width:100%;min-height:150px;border:0;border-radius:14px;padding:16px;color:#fff;font-size:22px;font-weight:700;text-align:center;resize:none;outline:none;box-sizing:border-box}
+.st-textarea::placeholder{color:rgba(255,255,255,.7)}
+.st-colors{display:flex;gap:10px;justify-content:center;padding:4px 0}
+.st-dot{width:28px;height:28px;border-radius:50%;border:2px solid transparent}
+.st-dot.on{border-color:#fff;box-shadow:0 0 0 2px var(--accent2)}
+/* story viewer */
+.story{position:fixed;inset:0;z-index:350;background:#000;color:#fff;display:flex;flex-direction:column;touch-action:manipulation}
+.story-bars{position:absolute;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top,0px));display:flex;gap:4px;z-index:3}
+.sbar{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden}
+.sfill{height:100%;width:0;background:#fff}
+.sfill.done{width:100%}
+.sfill.run{animation:sfill 5s linear forwards}
+@keyframes sfill{from{width:0}to{width:100%}}
+.story.paused .sfill.run{animation-play-state:paused}
+.story-head{position:absolute;left:10px;right:10px;top:calc(20px + env(safe-area-inset-top,0px));display:flex;align-items:center;gap:10px;z-index:3}
+.story-head .avatar{width:38px;height:38px;min-width:38px;font-size:15px}
+.story-head .who{flex:1;min-width:0}
+.story-head b{display:block;font-size:14px}
+.story-head small{display:block;font-size:11px;opacity:.8}
+.story-head button{background:rgba(255,255,255,.16);color:#fff;width:38px;height:38px;border-radius:50%;font-size:17px}
+.story-body{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.story-body img{max-width:100%;max-height:100%;object-fit:contain}
+.story-text{width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:28px;box-sizing:border-box}
+.story-text p{margin:0;font-size:28px;font-weight:700;text-align:center;line-height:1.35;word-break:break-word}
+.story-cap{position:absolute;left:0;right:0;bottom:calc(70px + env(safe-area-inset-bottom,0px));text-align:center;padding:10px 18px;background:linear-gradient(transparent,rgba(0,0,0,.55));z-index:2;font-size:15px}
+.story-hit{position:absolute;inset:70px 0 90px 0;z-index:2}
+.story-seen{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:4;background:rgba(255,255,255,.16);color:#fff;border-radius:999px;padding:10px 20px;font-weight:700}
+.modal-back.over-story{z-index:500}
+.modal h3.pc-name{justify-content:center}
+.modal .pc-photo,.modal .pc-letter{flex:0 0 auto}

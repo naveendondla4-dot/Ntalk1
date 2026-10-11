@@ -174,7 +174,7 @@ function chatRow(c,i){
 const normProfile=r=>({id:r.id,username:r.username,full_name:r.full_name,display_name:r.full_name||r.username,avatar_url:r.avatar_url||null,online:(state.onlineUsers||[]).includes(r.id)});
 function personRow(p){
  const existing=state.chats.find(c=>!c.is_group&&c.user_id===p.id&&c.hasMsg);
- return `<button class="chat-row" onclick="startChatWith('${p.id}')">${avatarBox(p.display_name||p.username,p.avatar_url,p.online?"online":"")}<div class="chat-info"><b>${esc(p.display_name||p.username)}</b><span>@${esc(p.username)}${p.online?" · Online":""}</span></div><div class="chat-meta"><small>${existing?"Chat":"New"}</small></div></button>`;
+ return `<button class="chat-row" onclick="startChatWith('${p.id}')">${avatarBox((nickOf(p.id)||p.display_name||p.username),p.avatar_url,p.online?"online":"")}<div class="chat-info"><b>${esc((nickOf(p.id)||p.display_name||p.username))}</b><span>@${esc(p.username)}${p.online?" · Online":""}</span></div><div class="chat-meta"><small>${existing?"Chat":"New"}</small></div></button>`;
 }
 function peopleBody(){
  const q=(state.peopleQuery||"").trim();
@@ -228,7 +228,7 @@ async function loadChats(){
  const result=[];
  priv.forEach((r,i)=>{
    const person=state.people.find(p=>p.id===r.other_user_id), last=lasts[i], o=old.get(r.chat_id);
-   result.push({id:r.chat_id,is_group:false,user_id:r.other_user_id,avatar_url:person?.avatar_url||null,name:person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:label(last)||"Tap to chat",time:last?.created_at||"",hasMsg:!!last||!!o?.hasMsg,unread:o?.unread||0});
+   result.push({id:r.chat_id,is_group:false,user_id:r.other_user_id,avatar_url:person?.avatar_url||null,name:nickOf(r.other_user_id)||person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:label(last)||"Tap to chat",time:last?.created_at||"",hasMsg:!!last||!!o?.hasMsg,unread:o?.unread||0});
  });
  groups.forEach((g,gi)=>{
    const last=lasts[priv.length+gi], o=old.get(g.chat_id);
@@ -483,7 +483,7 @@ function pickInit(exclude=[]){
 }
 function pickRowsHtml(){
  const pk=state.pick;if(!pk)return "";
- const rows=[...pk.items.values()].sort((a,b)=>(a.display_name||"").localeCompare(b.display_name||"")).map(p=>`<label class="pick-row"><input type="checkbox" value="${p.id}" ${pk.selected.has(p.id)?"checked":""} onchange="pickToggle('${p.id}',this.checked)">${avatarBox(p.display_name||p.username,p.avatar_url,"sm")}<span>${esc(p.display_name||p.username)}<small class="muted"> @${esc(p.username)}</small></span></label>`).join("");
+ const rows=[...pk.items.values()].sort((a,b)=>(a.display_name||"").localeCompare(b.display_name||"")).map(p=>`<label class="pick-row"><input type="checkbox" value="${p.id}" ${pk.selected.has(p.id)?"checked":""} onchange="pickToggle('${p.id}',this.checked)">${avatarBox((nickOf(p.id)||p.display_name||p.username),p.avatar_url,"sm")}<span>${esc((nickOf(p.id)||p.display_name||p.username))}<small class="muted"> @${esc(p.username)}</small></span></label>`).join("");
  return rows||`<div class="empty-small">Search by name or username to add people.</div>`;
 }
 function pickToggle(id,on){const pk=state.pick;if(!pk)return;if(on)pk.selected.add(id);else pk.selected.delete(id)}
@@ -891,10 +891,10 @@ async function openProfileCard(){
  await fetchLastSeen(c);
  const p=state.people.find(x=>x.id===c.user_id)||{};
  const url=p.avatar_url||c.avatar_url||"";
- const name=p.display_name||c.name;
+ const name=nickOf(c.user_id)||p.display_name||c.name;
  const status=c.online?"● Online":(c.lastSeen?fmtLastSeen(c.lastSeen):"Offline");
  closeModal();
- document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal">${url?`<img class="pc-photo" src="${esc(url)}" alt="" onclick="openPhotoUrl(this.src)">`:`<div class="pc-letter">${esc(avatarName(name))}</div>`}<h3 class="pc-name">${esc(name)}</h3><p class="pc-sub">@${esc(p.username||String(c.username||"").replace(/^@/,""))}</p><p class="pc-seen">${esc(status)}</p><div class="modal-actions"><button class="m-ok" onclick="closeModal()">Close</button></div></div></div>`);
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal">${url?`<img class="pc-photo" src="${esc(url)}" alt="" onclick="openPhotoUrl(this.src)">`:`<div class="pc-letter">${esc(avatarName(name))}</div>`}<h3 class="pc-name">${esc(name)}</h3><p class="pc-sub">@${esc(p.username||String(c.username||"").replace(/^@/,""))}</p><p class="pc-seen">${esc(status)}</p><div class="modal-actions" style="justify-content:center"><button class="m-cancel" onclick="editNickname('${c.user_id}')">✎ Edit name</button></div><div class="modal-actions"><button class="m-ok" onclick="closeModal()">Close</button></div></div></div>`);
 }
 
 /* =====================  READ RECEIPTS  ===================== */
@@ -1042,7 +1042,7 @@ function statusRow(){
  const me=`<div class="st-item" onclick="${mine?`openStory('${uid()}')`:"openStatusComposer()"}"><div class="st-ring ${mine?"unseen":""}">${avatarBox(meName(),state.user?.avatar_url)}</div><span class="st-plus" onclick="event.stopPropagation();openStatusComposer()">+</span><span class="nm">My status</span></div>`;
  const others=(state.statuses||[]).map(g=>{
    const p=state.people.find(x=>x.id===g.user_id);if(!p)return "";
-   return `<div class="st-item" onclick="openStory('${g.user_id}')"><div class="st-ring ${g.allSeen?"seen":"unseen"}">${avatarBox(p.display_name||p.username,p.avatar_url)}</div><span class="nm">${esc(p.display_name||p.username)}</span></div>`;
+   return `<div class="st-item" onclick="openStory('${g.user_id}')"><div class="st-ring ${g.allSeen?"seen":"unseen"}">${avatarBox((nickOf(p.id)||p.display_name||p.username),p.avatar_url)}</div><span class="nm">${esc((nickOf(p.id)||p.display_name||p.username))}</span></div>`;
  }).join("");
  return `<div class="st-row">${me}${others}</div>`;
 }
@@ -1405,7 +1405,42 @@ async function saveSetup(){
  state.user.name=name;state.user.username="@"+username;state.user.needsSetup=false;saveUser();
  render();
 }
-async function initBackend(){
+/* =====================  CONTACT NAMES (private nicknames)  ===================== */
+function nickOf(id){return (state.nicknames&&state.nicknames[id])||""}
+async function loadNicknames(){
+ if(!hasSupabase||!uid())return;
+ const {data,error}=await sb.from("contact_names").select("target_id,nickname").eq("owner_id",uid());
+ if(error){console.warn("contact names",error);return}
+ state.nicknames={};
+ (data||[]).forEach(r=>{state.nicknames[r.target_id]=r.nickname});
+}
+async function saveNickname(targetId,raw){
+ const name=String(raw||"").trim().slice(0,40);
+ if(!name){
+   const {error}=await sb.from("contact_names").delete().eq("owner_id",uid()).eq("target_id",targetId);
+   if(error)return alert(error.message);
+   delete state.nicknames[targetId];
+ }else{
+   const {error}=await sb.from("contact_names").upsert({owner_id:uid(),target_id:targetId,nickname:name,updated_at:new Date().toISOString()});
+   if(error)return alert(error.message);
+   state.nicknames[targetId]=name;
+ }
+ await loadChats();
+ render();
+}
+function editNickname(targetId){
+ closeModal();
+ const p=state.people.find(x=>x.id===targetId)||{};
+ const cur=nickOf(targetId);
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>Contact name</h3><p class="muted">Only you see this name. ${esc((nickOf(p.id)||p.display_name||p.username)||"")} will not know about it.</p><input id="nickIn" class="m-input" maxlength="40" value="${esc(cur)}" placeholder="${esc((nickOf(p.id)||p.display_name||p.username)||"Name")}"><div class="modal-actions">${cur?`<button class="m-danger" onclick="saveNicknameFromModal('${targetId}',true)">Remove</button>`:""}<button class="m-cancel" onclick="closeModal()">Cancel</button><button class="m-ok" onclick="saveNicknameFromModal('${targetId}',false)">Save</button></div></div></div>`);
+ document.getElementById("nickIn")?.focus();
+}
+function saveNicknameFromModal(targetId,remove){
+ const v=remove?"":(document.getElementById("nickIn")?.value||"");
+ closeModal();
+ saveNickname(targetId,v);
+}
+async function initBackend(){ await loadNicknames();
  await loadPeople();await loadChats();
  await subscribeMessageChannel();await setupTyping();await initPresence();await setupSignaling();
  loadPrivacy();startLastSeen();markDeliveredAll();

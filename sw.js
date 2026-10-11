@@ -1,4 +1,4 @@
-const CACHE='ntalk-v5';
+const CACHE='ntalk-v6';
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./','./index.html','./style.css','./app.js','./config.js','./manifest.json','./icon.svg'])).catch(()=>{}))});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 
@@ -33,12 +33,15 @@ self.addEventListener('notificationclick',e=>{
   e.waitUntil((async()=>{
     const cs=await self.clients.matchAll({type:'window',includeUncontrolled:true});
     let url='./';
-    if(d.type==='call')url='./?call='+encodeURIComponent(d.from||'')+'&t='+(d.ts||Date.now());
+    const group=d.type==='call'&&d.group;
+    if(group)url='./?gcall='+encodeURIComponent(d.chat_id||'')+'&from='+encodeURIComponent(d.from||'')+'&t='+(d.ts||Date.now());
+    else if(d.type==='call')url='./?call='+encodeURIComponent(d.from||'')+'&t='+(d.ts||Date.now());
     else if(d.chat_id)url='./?chat='+encodeURIComponent(d.chat_id);
     if(cs.length){
       const c=cs[0];
       try{await c.focus()}catch(_){}
-      if(d.type==='call')c.postMessage({type:'call_ready',from:d.from,ts:d.ts});
+      if(group)c.postMessage({type:'gcall_ready',chat_id:d.chat_id,from:d.from,ts:d.ts});
+      else if(d.type==='call')c.postMessage({type:'call_ready',from:d.from,ts:d.ts});
       else if(d.chat_id)c.postMessage({type:'open_chat',chat_id:d.chat_id});
     }else{
       await self.clients.openWindow(url);

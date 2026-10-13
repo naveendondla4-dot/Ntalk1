@@ -171,26 +171,7 @@ function peopleBody(){
  return rows||`<div class="empty-small">No users found for “${esc(q)}”.</div>`;
 }
 let peopleTimer=null;
-function filterDirectory(v){
- const el=()=>document.getElementById("directoryRows");
- if(state.chatTab==="people"){
-  state.peopleQuery=v;clearTimeout(peopleTimer);
-  const q=v.trim();
-  if(q.length<2){state.searchResults=[];state.searching=false;if(el())el().innerHTML=peopleBody();return}
-  state.searching=true;if(el())el().innerHTML=peopleBody();
-  peopleTimer=setTimeout(async()=>{
-    const {data,error}=await sb.rpc("search_profiles",{q});
-    if((state.peopleQuery||"").trim()!==q)return;
-    state.searching=false;
-    state.searchResults=error?[]:(data||[]).map(normProfile);
-    if(error)console.warn("search",error);
-    if(el())el().innerHTML=peopleBody();
-  },350);
-  return;
- }
- const ql=v.toLowerCase();
- if(el())el().innerHTML=visibleChats().filter(c=>(c.name||"").toLowerCase().includes(ql)||(c.username||"").toLowerCase().includes(ql)).map(c=>chatRow(c,state.chats.indexOf(c))).join("")||`<div class="empty-small">No chats found.</div>`;
-}
+function filterDirectory(v){state.dirQuery=v;const el=document.getElementById("directoryRows");if(el)el.innerHTML=directoryHtml()}
 async function refreshDirectory(){await loadPeople();await loadChats();render()}
 async function loadPeople(){
  if(!hasSupabase||!uid())return;
@@ -1458,20 +1439,34 @@ const EXTRA_ICONS={
 
 /* =====================  CHAT LIST: search icon, + button, secret title  ===================== */
 function focusSearch(){setTimeout(()=>document.getElementById("dirSearch")?.focus(),50)}
-function toggleSearch(){state.searchOpen=!state.searchOpen;render();if(state.searchOpen)focusSearch()}
-function newChatPlus(){state.chatTab="people";state.searchOpen=true;state.secretOpen=false;render();focusSearch()}
+function toggleSearch(){state.searchOpen=!state.searchOpen;if(!state.searchOpen)state.dirQuery="";render();if(state.searchOpen)focusSearch()}
+function newChatPlus(){state.chatTab="chats";state.searchOpen=true;state.secretOpen=false;render();focusSearch()}
 function setChatTab(t){state.chatTab=t;state.secretOpen=false;state.searchOpen=(t==="people");render();if(t==="people")focusSearch()}
+function matchesQuery(name,username,q){
+ const t=String(q||"").trim().toLowerCase();if(!t)return true;
+ return String(name||"").toLowerCase().includes(t)||String(username||"").toLowerCase().includes(t);
+}
+function directoryHtml(){
+ const q=state.dirQuery||"";
+ const shown=visibleChats();
+ const chats=shown.filter(c=>matchesQuery(c.name,String(c.username||"").replace(/^@/,""),q));
+ const chatUsers=new Set(shown.map(c=>c.user_id));
+ const nm=p=>nickOf(p.id)||p.display_name||p.username||"";
+ const users=state.people.filter(p=>!chatUsers.has(p.id)&&matchesQuery(nm(p),p.username,q)).sort((a,b)=>nm(a).localeCompare(nm(b)));
+ let h="";
+ if(chats.length)h+=`<div class="sec-title">Chats</div>`+chats.map(c=>chatRow(c,state.chats.indexOf(c))).join("");
+ if(users.length)h+=`<div class="sec-title">All users</div>`+users.map(personRow).join("");
+ if(!h)h=`<div class="empty-small">${String(q).trim()?"No users or chats found.":"No other users have joined yet."}</div>`;
+ return h;
+}
 function chatList(){
- if(state.secretOpen&&state.chatTab==="chats")return secretList();
- const people=state.chatTab==="people";
- const rows=visibleChats().map(c=>chatRow(c,state.chats.indexOf(c))).join("");
- const showSearch=state.searchOpen||people;
+ if(state.secretOpen)return secretList();
+ const showSearch=state.searchOpen||!!String(state.dirQuery||"").trim();
  return `<section class="chat-list">
- <header class="list-head"><div><h2 ${people?"":`class="tap" onclick="openSecret()"`}>${people?"People":"Chats"}</h2><p>${people?"Find people by name or username":"People you have messaged"}</p></div><div class="lh-actions"><button class="round" onclick="toggleSearch()" title="Search">${ico("search")}</button><button class="round" onclick="newChatPlus()" title="New chat">${ico("plus")}</button></div></header>
- ${showSearch?`<div class="search">${ico("search")}<input id="dirSearch" autocomplete="off" placeholder="${people?"Search name or username...":"Search chats..."}" value="${people?esc(state.peopleQuery||""):""}" oninput="filterDirectory(this.value)"></div>`:""}
- <div class="list-tabs"><button class="${state.chatTab==="chats"?"active":""}" onclick="setChatTab('chats')">Chats</button><button class="${state.chatTab==="people"?"active":""}" onclick="setChatTab('people')">People</button></div>
- ${state.chatTab==="chats"?statusRow():""}
- <div id="directoryRows">${people?peopleBody():(rows||`<div class="empty-small">No conversations yet. Tap <b>+</b> and search for someone.</div>`)}</div>
+ <header class="list-head"><div><h2 class="tap" onclick="openSecret()">Chats</h2><p>Your chats and all users</p></div><div class="lh-actions"><button class="round" onclick="toggleSearch()" title="Search">${ico("search")}</button><button class="round" onclick="newChatPlus()" title="Find people">${ico("plus")}</button></div></header>
+ ${showSearch?`<div class="search">${ico("search")}<input id="dirSearch" autocomplete="off" placeholder="Search name or username..." value="${esc(state.dirQuery||"")}" oninput="filterDirectory(this.value)"></div>`:""}
+ ${statusRow()}
+ <div id="directoryRows">${directoryHtml()}</div>
  </section>`;
 }
 
@@ -1700,36 +1695,55 @@ async function shortVideoError(id){
 }
 function openShortUpload(){
  closeModal();state.shUp=null;
- document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeShortUpload()"><div class="modal"><h3>New short</h3><label class="st-big">${ico("film")}<span id="shFileName">Choose a video</span><input type="file" accept="video/*" hidden onchange="stageShort(this.files[0])"></label><video id="shPrev" class="st-preview" controls playsinline style="display:none"></video><input id="shCap" class="m-input" maxlength="150" placeholder="Write a caption..."><p class="muted">Up to 60 seconds and 45 MB.</p><div class="modal-actions"><button class="m-cancel" onclick="closeShortUpload()">Cancel</button><button id="shPost" class="m-ok" onclick="postShort()">Post</button></div></div></div>`);
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeShortUpload()"><div class="modal"><h3>New short</h3><label class="st-big">${ico("film")}<span id="shFileName">Choose a video</span><input type="file" accept="video/*" hidden onchange="stageShort(this.files[0])"></label><video id="shPrev" class="st-preview" controls playsinline style="display:none"></video><input id="shCap" class="m-input" maxlength="150" placeholder="Write a caption..."><p id="shStatus" class="muted" style="display:none"></p><p class="muted">Up to 60 seconds and 45 MB.</p><div class="modal-actions"><button class="m-cancel" onclick="closeShortUpload()">Cancel</button><button id="shPost" class="m-ok" onclick="postShort()">Post</button></div></div></div>`);
 }
 function closeShortUpload(){if(state.shUp&&state.shUp.url)URL.revokeObjectURL(state.shUp.url);state.shUp=null;closeModal()}
+function setShStatus(msg,isErr){const el=document.getElementById("shStatus");if(!el)return;el.textContent=msg||"";el.style.display=msg?"block":"none";el.style.color=isErr?"var(--danger)":"var(--muted)"}
+function videoMimeOf(file){
+ if(file.type&&file.type.startsWith("video/"))return file.type;
+ const ext=(file.name.split(".").pop()||"").toLowerCase();
+ return {mp4:"video/mp4",m4v:"video/mp4",mov:"video/quicktime",webm:"video/webm","3gp":"video/3gpp",mkv:"video/x-matroska"}[ext]||"";
+}
 async function stageShort(file){
  if(!file)return;
- if(!file.type.startsWith("video/"))return alert("Please choose a video file.");
- if(file.size>45*1024*1024)return alert("This video is larger than 45 MB. Choose a shorter or smaller video.");
+ const mime=videoMimeOf(file);
+ if(!mime)return setShStatus("This file is not a video. Choose a video file.",true);
+ if(file.size>45*1024*1024)return setShStatus("This video is larger than 45 MB. Choose a smaller video.",true);
+ setShStatus("Reading video…");
+ let duration=0,note="Ready. Tap Post.";
  try{
   const m=await videoMeta(file);
-  if(m.duration>61)return alert("Shorts can be up to 60 seconds.");
-  if(state.shUp&&state.shUp.url)URL.revokeObjectURL(state.shUp.url);
-  const url=URL.createObjectURL(file);state.shUp={file,url,duration:m.duration};
-  const pv=document.getElementById("shPrev");if(pv){pv.src=url;pv.style.display="block"}
-  const fn=document.getElementById("shFileName");if(fn)fn.textContent=file.name;
- }catch(e){alert(e.message)}
+  duration=m.duration;
+  if(duration>61)return setShStatus("Shorts can be up to 60 seconds. This one is "+Math.round(duration)+" s.",true);
+ }catch(e){note="Preview not available on this phone, but you can still tap Post."}
+ if(state.shUp&&state.shUp.url)URL.revokeObjectURL(state.shUp.url);
+ const url=URL.createObjectURL(file);
+ state.shUp={file,url,duration,mime};
+ const pv=document.getElementById("shPrev");if(pv){pv.src=url;pv.style.display="block"}
+ const fn=document.getElementById("shFileName");if(fn)fn.textContent=file.name;
+ setShStatus(note);
 }
 async function postShort(){
- const u=state.shUp;if(!u)return alert("Choose a video first.");
- const btn=document.getElementById("shPost");if(btn){btn.disabled=true;btn.textContent="Uploading…"}
+ const u=state.shUp;
+ if(!u)return setShStatus("Choose a video first.",true);
+ const btn=document.getElementById("shPost");
+ const reset=()=>{if(btn){btn.disabled=false;btn.textContent="Post"}};
+ if(btn){btn.disabled=true;btn.textContent="Posting…"}
  try{
-  const ext=(u.file.type.split("/")[1]||"mp4").replace(/[^a-z0-9]/gi,"").slice(0,5)||"mp4";
+  const ext=(u.file.name.split(".").pop()||"mp4").toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,5)||"mp4";
   const path=`${uid()}/short-${crypto.randomUUID()}.${ext}`;
-  const up=await sb.storage.from("ntalk-media").upload(path,u.file,{contentType:u.file.type||"video/mp4",upsert:false});
-  if(up.error)throw up.error;
-  const {error}=await sb.from("shorts").insert({user_id:uid(),video_path:path,caption:(document.getElementById("shCap")?.value||"").trim()||null});
-  if(error){sb.storage.from("ntalk-media").remove([path]).then(()=>{},()=>{});throw error}
-  closeShortUpload();initShorts();
- }catch(e){if(btn){btn.disabled=false;btn.textContent="Post"}alert("Could not post: "+(e.message||e)+"\nTip: Supabase allows files up to 50 MB. Run supabase_shorts_secret.sql first.")}
+  setShStatus("Uploading video… please wait, do not close the app.");
+  const up=await sb.storage.from("ntalk-media").upload(path,u.file,{contentType:u.mime,upsert:false});
+  if(up.error)throw new Error("Upload failed: "+up.error.message);
+  setShStatus("Saving short…");
+  const caption=(document.getElementById("shCap")?.value||"").trim()||null;
+  const {error}=await sb.from("shorts").insert({user_id:uid(),video_path:path,caption});
+  if(error){sb.storage.from("ntalk-media").remove([path]).then(()=>{},()=>{});throw new Error("Save failed: "+error.message)}
+  closeShortUpload();
+  showToast("Shorts","Posted","");
+  initShorts();
+ }catch(e){reset();setShStatus(e.message||String(e),true)}
 }
-/* =====================  PASSWORD EYE (show / hide)  ===================== */
 const EYE_ON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
 const EYE_OFF='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6.2A9.8 9.8 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.6 7.6A16.6 16.6 0 0 0 2 12s3.6 6 10 6a9.7 9.7 0 0 0 4-.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
 function addPwToggles(){

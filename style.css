@@ -460,3 +460,6 @@ video.media{max-width:100%;border-radius:12px}
 .note-modal .avatar{width:72px;height:72px;min-width:72px;font-size:28px;margin:0 auto}
 .note-big{text-align:center;font-size:18px;font-weight:700;margin:8px 0;word-break:break-word}
 .note-song{text-align:center;color:var(--accent2);font-size:13px}
+
+/* ===== NTalk: combined chats + all users list ===== */
+.sec-title{padding:12px 14px 4px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}

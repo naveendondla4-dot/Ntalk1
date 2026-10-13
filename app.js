@@ -161,7 +161,7 @@ function visibleChats(){return state.chats.filter(c=>!c.is_group&&c.hasMsg&&!isS
 const normProfile=r=>({id:r.id,username:r.username,full_name:r.full_name,display_name:r.full_name||r.username,avatar_url:r.avatar_url||null,online:(state.onlineUsers||[]).includes(r.id)});
 function personRow(p){
  const existing=state.chats.find(c=>!c.is_group&&c.user_id===p.id&&c.hasMsg);
- return `<button class="chat-row" onclick="startChatWith('${p.id}')">${avatarBox((nickOf(p.id)||p.display_name||p.username),p.avatar_url,p.online?"online":"")}<div class="chat-info"><b>${esc((nickOf(p.id)||p.display_name||p.username))}</b><span>@${esc(p.username)}${p.online?" · Online":""}</span></div><div class="chat-meta"><small>${existing?"Chat":"New"}</small></div></button>`;
+ return `<button class="chat-row${state.notes&&state.notes.has(p.id)?" has-note":""}" onclick="startChatWith('${p.id}')">${state.notes&&state.notes.has(p.id)?noteBubble(p.id):""}${avatarBox((nickOf(p.id)||p.display_name||p.username),p.avatar_url,p.online?"online":"")}<div class="chat-info"><b>${esc((nickOf(p.id)||p.display_name||p.username))}</b><span>@${esc(p.username)}${p.online?" · Online":""}</span></div><div class="chat-meta"><small>${existing?"Chat":"New"}</small></div></button>`;
 }
 function peopleBody(){
  const q=(state.peopleQuery||"").trim();
@@ -1577,14 +1577,14 @@ function videoMeta(file){
   v.src=u;
  });
 }
-const storyDur=it=>it.kind==="video"?Math.max(3,Math.min(31,Number(it.duration_seconds)||15)):5;
+const storyDur=it=>it.kind==="video"?Math.max(3,Math.min(121,Number(it.duration_seconds)||15)):5;
 async function stageVideo(file){
  if(!file)return;
  if(!file.type.startsWith("video/"))return alert("Please choose a video.");
- if(file.size>40*1024*1024)return alert("This video is larger than 40 MB.");
+ if(file.size>50*1024*1024)return alert("This video is larger than 50 MB. Choose a smaller or shorter video.");
  try{
   const m=await videoMeta(file);
-  if(m.duration>31)return alert("Status videos can be up to 30 seconds.");
+  if(m.duration>121)return alert("Status videos can be up to 2 minutes.");
   const d=state.stDraft||{};if(d.url)URL.revokeObjectURL(d.url);
   state.stDraft={mode:"video",file,url:URL.createObjectURL(file),duration:m.duration,color:d.color||STATUS_COLORS[0],text:""};
   renderStatusModal();
@@ -1695,7 +1695,7 @@ async function shortVideoError(id){
 }
 function openShortUpload(){
  closeModal();state.shUp=null;
- document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeShortUpload()"><div class="modal"><h3>New short</h3><label class="st-big">${ico("film")}<span id="shFileName">Choose a video</span><input type="file" accept="video/*" hidden onchange="stageShort(this.files[0])"></label><video id="shPrev" class="st-preview" controls playsinline style="display:none"></video><input id="shCap" class="m-input" maxlength="150" placeholder="Write a caption..."><p id="shStatus" class="muted" style="display:none"></p><p class="muted">Up to 60 seconds and 45 MB.</p><div class="modal-actions"><button class="m-cancel" onclick="closeShortUpload()">Cancel</button><button id="shPost" class="m-ok" onclick="postShort()">Post</button></div></div></div>`);
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeShortUpload()"><div class="modal"><h3>New short</h3><label class="st-big">${ico("film")}<span id="shFileName">Choose a video</span><input type="file" accept="video/*" hidden onchange="stageShort(this.files[0])"></label><video id="shPrev" class="st-preview" controls playsinline style="display:none"></video><input id="shCap" class="m-input" maxlength="150" placeholder="Write a caption..."><p id="shStatus" class="muted" style="display:none"></p><p class="muted">Up to 2 minutes and 50 MB.</p><div class="modal-actions"><button class="m-cancel" onclick="closeShortUpload()">Cancel</button><button id="shPost" class="m-ok" onclick="postShort()">Post</button></div></div></div>`);
 }
 function closeShortUpload(){if(state.shUp&&state.shUp.url)URL.revokeObjectURL(state.shUp.url);state.shUp=null;closeModal()}
 function setShStatus(msg,isErr){const el=document.getElementById("shStatus");if(!el)return;el.textContent=msg||"";el.style.display=msg?"block":"none";el.style.color=isErr?"var(--danger)":"var(--muted)"}
@@ -1708,13 +1708,13 @@ async function stageShort(file){
  if(!file)return;
  const mime=videoMimeOf(file);
  if(!mime)return setShStatus("This file is not a video. Choose a video file.",true);
- if(file.size>45*1024*1024)return setShStatus("This video is larger than 45 MB. Choose a smaller video.",true);
+ if(file.size>50*1024*1024)return setShStatus("This video is larger than 50 MB. Choose a smaller or shorter video.",true);
  setShStatus("Reading video…");
  let duration=0,note="Ready. Tap Post.";
  try{
   const m=await videoMeta(file);
   duration=m.duration;
-  if(duration>61)return setShStatus("Shorts can be up to 60 seconds. This one is "+Math.round(duration)+" s.",true);
+  if(duration>121)return setShStatus("Shorts can be up to 2 minutes. This one is "+Math.round(duration)+" s.",true);
  }catch(e){note="Preview not available on this phone, but you can still tap Post."}
  if(state.shUp&&state.shUp.url)URL.revokeObjectURL(state.shUp.url);
  const url=URL.createObjectURL(file);
@@ -1813,15 +1813,15 @@ function openNoteComposer(){
  closeModal();
  const cur=state.notes&&state.notes.get(uid());
  state.noteDraft={file:null,removeAudio:false};
- document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>${cur?"Edit note":"New note"}</h3><input id="noteText" class="m-input" maxlength="60" placeholder="Share a thought..." value="${esc(cur?.body||"")}"><label class="st-big">${ico("music")}<span id="noteFileName">${cur&&cur.audio_path?esc("♪ "+(cur.audio_title||"Song")+" (tap to change)"):"Add a song (up to 30 s, 3 MB)"}</span><input type="file" accept="audio/*" hidden onchange="stageNoteAudio(this.files[0])"></label>${cur&&cur.audio_path?`<button id="noteRmSong" class="m-danger" onclick="removeNoteSong()">Remove song</button>`:""}<audio id="notePrev" controls style="display:none;width:100%"></audio><p class="muted">Your note stays for 24 hours. Only people you chat with can see it.</p><div class="modal-actions"><button class="m-cancel" onclick="closeModal()">Cancel</button><button id="notePost" class="m-ok" onclick="postNote()">Share</button></div></div></div>`);
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>${cur?"Edit note":"New note"}</h3><input id="noteText" class="m-input" maxlength="60" placeholder="Share a thought..." value="${esc(cur?.body||"")}"><label class="st-big">${ico("music")}<span id="noteFileName">${cur&&cur.audio_path?esc("♪ "+(cur.audio_title||"Song")+" (tap to change)"):"Add a song (up to 2 min, 5 MB)"}</span><input type="file" accept="audio/*" hidden onchange="stageNoteAudio(this.files[0])"></label>${cur&&cur.audio_path?`<button id="noteRmSong" class="m-danger" onclick="removeNoteSong()">Remove song</button>`:""}<audio id="notePrev" controls style="display:none;width:100%"></audio><p class="muted">Your note stays for 24 hours. Only people you chat with can see it.</p><div class="modal-actions"><button class="m-cancel" onclick="closeModal()">Cancel</button><button id="notePost" class="m-ok" onclick="postNote()">Share</button></div></div></div>`);
 }
 async function stageNoteAudio(file){
  if(!file)return;
  if(!file.type.startsWith("audio/"))return alert("Please choose an audio file (mp3, m4a, wav...).");
- if(file.size>3*1024*1024)return alert("This song is larger than 3 MB. Choose a shorter clip.");
+ if(file.size>5*1024*1024)return alert("This song is larger than 5 MB. Choose a shorter clip.");
  try{
   const m=await audioMeta(file);
-  if(m.duration>31)return alert("The song clip can be up to 30 seconds.");
+  if(m.duration>121)return alert("The song clip can be up to 2 minutes.");
   state.noteDraft={file,removeAudio:false};
   const pv=document.getElementById("notePrev");
   if(pv){if(pv.dataset.u)URL.revokeObjectURL(pv.dataset.u);const u=URL.createObjectURL(file);pv.dataset.u=u;pv.src=u;pv.style.display="block"}
@@ -1830,7 +1830,7 @@ async function stageNoteAudio(file){
 }
 function removeNoteSong(){
  state.noteDraft={file:null,removeAudio:true};
- const fn=document.getElementById("noteFileName");if(fn)fn.textContent="Add a song (up to 30 s, 3 MB)";
+ const fn=document.getElementById("noteFileName");if(fn)fn.textContent="Add a song (up to 2 min, 5 MB)";
  document.getElementById("noteRmSong")?.remove();
 }
 async function postNote(){
@@ -1863,6 +1863,28 @@ async function deleteNote(){
  if(cur.audio_path)sb.storage.from("ntalk-media").remove([cur.audio_path]).then(()=>{},()=>{});
  closeModal();await loadNotes();render();
 }
+/* =====================  PHONE BACK BUTTON  ===================== */
+function topLayerClose(){
+ if(document.getElementById("mediaView")){closeMedia();return true}
+ if(document.getElementById("storyView")){closeStory();return true}
+ if(document.getElementById("modalRoot")){if(secretResolve)secretCancel();else closeModal();return true}
+ if(state.call||state.gcall||state.ginvite||document.getElementById("gcallView"))return true;
+ if(state.activeChat!==null&&(state.page==="chats"||state.page==="groups")){state.activeChat=null;state.messages=[];render();return true}
+ if(state.secretOpen){state.secretOpen=false;render();return true}
+ if(state.page!=="chats"){state.page="chats";state.shortsMounted=false;render();return true}
+ return false;
+}
+function setupBackNav(){
+ try{
+  history.replaceState({nt:"root"},"");
+  history.pushState({nt:"top"},"");
+  window.addEventListener("popstate",()=>{
+   if(!state.user){history.back();return}
+   if(topLayerClose()){history.pushState({nt:"top"},"");return}
+   history.back();
+  });
+ }catch(e){console.warn("back nav",e)}
+}
 async function initBackend(){ await loadNicknames();
  await loadPeople();await loadChats();
  await subscribeMessageChannel();await setupTyping();await initPresence();await setupSignaling();
@@ -1877,6 +1899,7 @@ function render(){
  const _m=document.getElementById("messages"),_st=_m?_m.scrollTop:0,_near=!_m||(_m.scrollHeight-_m.scrollTop-_m.clientHeight<140);
  const _d=document.getElementById("dirSearch"),_dv=_d?_d.value:null,_df=!!_d&&document.activeElement===_d,_ds=_d?_d.selectionStart:0;
  document.body.dataset.theme=state.theme;
+ document.body.classList.toggle("in-chat",!!state.user&&state.activeChat!==null&&(state.page==="chats"||state.page==="groups"));
  if(recoveryMode){app.innerHTML=resetView();return}
  if(!state.user){app.innerHTML=loginView();return}
  if(state.user.needsSetup){app.innerHTML=setupView();return}
@@ -1894,6 +1917,7 @@ window.addEventListener("load",async()=>{
  document.addEventListener("click",()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().then(r=>{if(r==="granted")registerPush()}).catch(()=>{})},{once:true});
  setupMsgGestures();
  setupPwToggles();
+ setupBackNav();
  document.addEventListener("visibilitychange",()=>{if(!state.user)return;rawTouch();if(document.hidden){clearTimeout(state._lockT);state._lockT=setTimeout(()=>{if(state.secretUnlocked||state.secretOpen)lockSecret()},60000)}else clearTimeout(state._lockT);if(!document.hidden){const c=state.chats[state.activeChat];if(c){c.unread=0;if(!c.is_group)markSeen(c.id)}updateBadge()}});
  window.addEventListener("pagehide",()=>{if(state.user)rawTouch()});
  if(hasSupabase){const {data}=await sb.auth.getSession();if(data.session&&!recoveryMode){await loadProfile(data.session.user);await initBackend()}}

@@ -463,3 +463,9 @@ video.media{max-width:100%;border-radius:12px}
 
 /* ===== NTalk: combined chats + all users list ===== */
 .sec-title{padding:12px 14px 4px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+
+/* ===== NTalk: hide the bottom bar while a chat is open (phones) ===== */
+@media(max-width:520px){
+  body.in-chat .sidebar{display:none}
+  body.in-chat .main{height:100dvh}
+}

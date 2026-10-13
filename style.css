@@ -441,3 +441,22 @@ video.media{max-width:100%;border-radius:12px}
 .short-actions .ui-icon{width:24px;height:24px}
 .short-msg{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#c8cbe0;line-height:1.7;padding:24px}
 @media(max-width:520px){.shorts{height:calc(100dvh - 68px)}}
+
+/* ===== NTalk: password eye, notes ===== */
+.pw-wrap{position:relative;display:block}
+.pw-wrap input{display:block;width:100%;box-sizing:border-box;padding-right:46px !important}
+.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;background:transparent !important;border:0 !important;color:var(--muted);display:grid;place-items:center;padding:0 !important;margin:0 !important;min-height:0}
+.pw-eye svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.chat-row{position:relative}
+.chat-row.has-note{padding-top:32px}
+.note-bub{display:inline-block;max-width:104px;padding:4px 10px;border-radius:14px;background:var(--panel-solid);border:1px solid var(--line);color:var(--text);font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.chat-row .note-bub{position:absolute;left:8px;top:6px;z-index:2}
+.st-item.has-note{padding-top:26px}
+.st-item .note-bub{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:2}
+.note-bub.add{color:var(--muted);border-style:dashed}
+.note-bub.inline{max-width:100%;white-space:normal}
+.note-card{text-align:center;margin:8px 0}
+.note-card audio,.note-modal audio{width:100%;margin-top:8px}
+.note-modal .avatar{width:72px;height:72px;min-width:72px;font-size:28px;margin:0 auto}
+.note-big{text-align:center;font-size:18px;font-weight:700;margin:8px 0;word-break:break-word}
+.note-song{text-align:center;color:var(--accent2);font-size:13px}

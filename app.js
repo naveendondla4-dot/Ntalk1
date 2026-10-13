@@ -140,7 +140,7 @@ async function logout(){
  try{if(state.channel)await sb.removeChannel(state.channel);if(state.presence)await sb.removeChannel(state.presence);if(state.signal)await sb.removeChannel(state.signal);if(state.typingCh)await sb.removeChannel(state.typingCh);await unregisterPush();await sb.auth.signOut();}catch{}
  clearInterval(state.lsTimer);state.lsTimer=null;state.pushActive=false;state.replyTo=null;state.statuses=[];state.statusMine=null;stopRing();
  state.channel=null;state.channelUser=null;state.typingCh=null;state.typingUser=null;state.presence=null;state.signal=null;state.activeChat=null;state.page="chats";state.chatTab="chats";
- state.user=null; state.chats=[]; state.people=[]; state.messages=[]; localStorage.removeItem("ntalk_user"); endCall(false); leaveGroupCall(false); dismissGroupInvite(); state.callLogs=[]; state.secretIds=new Set(); state.secretUnlocked=false; state.secretOpen=false; state.hasSecretPin=null; state.shortsMounted=false; state.searchResults=[]; state.peopleQuery=""; render();
+ state.user=null; state.chats=[]; state.people=[]; state.messages=[]; localStorage.removeItem("ntalk_user"); endCall(false); leaveGroupCall(false); dismissGroupInvite(); state.callLogs=[]; state.notes=new Map(); state.secretIds=new Set(); state.secretUnlocked=false; state.secretOpen=false; state.hasSecretPin=null; state.shortsMounted=false; state.searchResults=[]; state.peopleQuery=""; render();
 }
 function setTheme(t){state.theme=t;localStorage.setItem("ntalk_theme",t);render()}
 function toggleTheme(){setTheme(state.theme==="dark"?"light":"dark")}
@@ -158,9 +158,6 @@ function sidebar(){
 }
 
 function visibleChats(){return state.chats.filter(c=>!c.is_group&&c.hasMsg&&!isSecret(c.id))}
-function chatRow(c,i){
- return `<button class="chat-row" onclick="openChat(${i})">${avatarBox(c.name,c.avatar_url,c.online?"online":"")}<div class="chat-info"><b>${esc(c.name)}</b><span>${esc(c.msg||"Tap to chat")}</span></div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
-}
 const normProfile=r=>({id:r.id,username:r.username,full_name:r.full_name,display_name:r.full_name||r.username,avatar_url:r.avatar_url||null,online:(state.onlineUsers||[]).includes(r.id)});
 function personRow(p){
  const existing=state.chats.find(c=>!c.is_group&&c.user_id===p.id&&c.hasMsg);
@@ -366,6 +363,10 @@ async function subscribeMessageChannel(){
  .on("postgres_changes",{event:"INSERT",schema:"public",table:"statuses"},()=>{
    clearTimeout(state._stT);
    state._stT=setTimeout(async()=>{await loadStatuses();if(state.page==="chats"&&!state.story)render()},400);
+ })
+ .on("postgres_changes",{event:"*",schema:"public",table:"notes"},()=>{
+   clearTimeout(state._ntT);
+   state._ntT=setTimeout(async()=>{await loadNotes();if(state.page==="chats")render()},400);
  })
  .subscribe();
 }
@@ -883,9 +884,11 @@ async function openProfileCard(){
  const p=state.people.find(x=>x.id===c.user_id)||{};
  const url=p.avatar_url||c.avatar_url||"";
  const name=nickOf(c.user_id)||p.display_name||c.name;
+ const nt=state.notes&&state.notes.get(c.user_id);let ntUrl="";if(nt&&nt.audio_path)ntUrl=(await signedUrl(nt.audio_path))||"";
+ const ntHtml=nt?`<div class="note-card"><span class="note-bub inline">${esc(noteText(nt))}</span>${ntUrl?`<audio controls src="${esc(ntUrl)}"></audio>`:""}</div>`:"";
  const status=c.online?"● Online":(c.lastSeen?fmtLastSeen(c.lastSeen):"Offline");
  closeModal();
- document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal">${url?`<img class="pc-photo" src="${esc(url)}" alt="" onclick="openPhotoUrl(this.src)">`:`<div class="pc-letter">${esc(avatarName(name))}</div>`}<h3 class="pc-name">${esc(name)}</h3><p class="pc-sub">@${esc(p.username||String(c.username||"").replace(/^@/,""))}</p><p class="pc-seen">${esc(status)}</p><div class="modal-actions" style="justify-content:center"><button class="m-cancel" onclick="editNickname('${c.user_id}')">✎ Edit name</button></div><div class="modal-actions"><button class="m-ok" onclick="closeModal()">Close</button></div></div></div>`);
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal">${url?`<img class="pc-photo" src="${esc(url)}" alt="" onclick="openPhotoUrl(this.src)">`:`<div class="pc-letter">${esc(avatarName(name))}</div>`}<h3 class="pc-name">${esc(name)}</h3><p class="pc-sub">@${esc(p.username||String(c.username||"").replace(/^@/,""))}</p><p class="pc-seen">${esc(status)}</p>${ntHtml}<div class="modal-actions" style="justify-content:center"><button class="m-cancel" onclick="editNickname('${c.user_id}')">✎ Edit name</button></div><div class="modal-actions"><button class="m-ok" onclick="closeModal()">Close</button></div></div></div>`);
 }
 
 /* =====================  READ RECEIPTS  ===================== */
@@ -1035,7 +1038,9 @@ function statusRow(){
    const p=state.people.find(x=>x.id===g.user_id);if(!p)return "";
    return `<div class="st-item" onclick="openStory('${g.user_id}')"><div class="st-ring ${g.allSeen?"seen":"unseen"}">${avatarBox((nickOf(p.id)||p.display_name||p.username),p.avatar_url)}</div><span class="nm">${esc((nickOf(p.id)||p.display_name||p.username))}</span></div>`;
  }).join("");
- return `<div class="st-row">${me}${others}</div>`;
+ const mn=state.notes&&state.notes.get(uid());
+ const noteTile=`<div class="st-item${mn?" has-note":" has-note"}" onclick="openNoteComposer()"><span class="note-bub ${mn?"":"add"}" ${mn?`onclick="event.stopPropagation();showNote('${uid()}')"`:""}>${mn?esc(noteText(mn)):"+ Note"}</span><div class="st-ring ${mn?"seen":""}">${avatarBox(meName(),state.user?.avatar_url)}</div><span class="nm">My note</span></div>`;
+ return `<div class="st-row">${me}${noteTile}${others}</div>`;
 }
 /* ---- composer ---- */
 function openStatusComposer(){state.stDraft={mode:"choose",color:STATUS_COLORS[0],text:""};renderStatusModal()}
@@ -1447,7 +1452,8 @@ const EXTRA_ICONS={
  film:'<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m10 9 5 3-5 3V9Z"/>',
  heart:'<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/>',
  comment:'<path d="M20 12a8 8 0 0 1-8 8H5l1.5-3A8 8 0 1 1 20 12Z"/>',
- trash:'<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>'
+ trash:'<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
+ music:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'
 };
 
 /* =====================  CHAT LIST: search icon, + button, secret title  ===================== */
@@ -1723,10 +1729,130 @@ async function postShort(){
   closeShortUpload();initShorts();
  }catch(e){if(btn){btn.disabled=false;btn.textContent="Post"}alert("Could not post: "+(e.message||e)+"\nTip: Supabase allows files up to 50 MB. Run supabase_shorts_secret.sql first.")}
 }
+/* =====================  PASSWORD EYE (show / hide)  ===================== */
+const EYE_ON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6.2A9.8 9.8 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.6 7.6A16.6 16.6 0 0 0 2 12s3.6 6 10 6a9.7 9.7 0 0 0 4-.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+function addPwToggles(){
+ document.querySelectorAll('input[type="password"]:not([data-pw])').forEach(inp=>{
+  inp.dataset.pw="1";
+  const w=document.createElement("span");w.className="pw-wrap";
+  inp.parentNode.insertBefore(w,inp);w.appendChild(inp);
+  const b=document.createElement("button");b.type="button";b.className="pw-eye";
+  b.setAttribute("aria-label","Show password");b.innerHTML=EYE_ON;
+  b.onclick=()=>{
+   const show=inp.type==="password";
+   inp.type=show?"text":"password";
+   b.innerHTML=show?EYE_OFF:EYE_ON;
+   b.setAttribute("aria-label",show?"Hide password":"Show password");
+  };
+  w.appendChild(b);
+ });
+}
+function setupPwToggles(){
+ addPwToggles();
+ new MutationObserver(()=>addPwToggles()).observe(document.body,{childList:true,subtree:true});
+}
+
+/* =====================  NOTES (text + song, 24 h)  ===================== */
+const noteText=n=>(n.audio_path?"♪ ":"")+(n.body||n.audio_title||"Song");
+function noteBubble(userId,extra=""){
+ const n=state.notes&&state.notes.get(userId);if(!n)return "";
+ return `<span class="note-bub ${extra}" onclick="event.stopPropagation();showNote('${userId}')">${esc(noteText(n))}</span>`;
+}
+function chatRow(c,i){
+ const hasNote=!c.is_group&&state.notes&&state.notes.has(c.user_id);
+ return `<button class="chat-row${hasNote?" has-note":""}" onclick="openChat(${i})">${hasNote?noteBubble(c.user_id):""}${avatarBox(c.name,c.avatar_url,c.online?"online":"")}<div class="chat-info"><b>${esc(c.name)}</b><span>${esc(c.msg||"Tap to chat")}</span></div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
+}
+async function loadNotes(){
+ if(!hasSupabase||!uid())return;
+ const {data,error}=await sb.from("notes").select("*").gt("expires_at",new Date().toISOString());
+ if(error){console.warn("notes",error);return}
+ state.notes=new Map((data||[]).map(n=>[n.user_id,n]));
+}
+async function cleanupMyNote(){
+ if(!hasSupabase||!uid())return;
+ try{
+  const {data}=await sb.from("notes").select("audio_path").eq("user_id",uid()).lte("expires_at",new Date().toISOString());
+  if(!data||!data.length)return;
+  if(data[0].audio_path)await sb.storage.from("ntalk-media").remove([data[0].audio_path]);
+  await sb.from("notes").delete().eq("user_id",uid());
+ }catch(e){console.warn("note cleanup",e)}
+}
+function audioMeta(file){
+ return new Promise((res,rej)=>{
+  const a=document.createElement("audio"),u=URL.createObjectURL(file);a.preload="metadata";
+  a.onloadedmetadata=()=>{const d=a.duration;URL.revokeObjectURL(u);res({duration:isFinite(d)?d:0})};
+  a.onerror=()=>{URL.revokeObjectURL(u);rej(new Error("This audio format cannot be read by the browser."))};
+  a.src=u;
+ });
+}
+async function showNote(userId){
+ const n=state.notes&&state.notes.get(userId);if(!n)return;
+ const mine=userId===uid();
+ const p=mine?{display_name:meName(),avatar_url:state.user?.avatar_url}:(state.people.find(x=>x.id===userId)||{});
+ const name=mine?"Your note":(nickOf(userId)||p.display_name||p.username||"Note");
+ let url="";if(n.audio_path)url=(await signedUrl(n.audio_path))||"";
+ closeModal();
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeModal()"><div class="modal note-modal">${avatarBox(p.display_name||name,p.avatar_url)}<h3 class="pc-name">${esc(name)}</h3>${n.body?`<div class="note-big">${esc(n.body)}</div>`:""}${n.audio_path?`<div class="note-song">♪ ${esc(n.audio_title||"Song")}</div>${url?`<audio controls autoplay src="${esc(url)}"></audio>`:`<p class="pc-sub">Could not load the song.</p>`}`:""}<p class="pc-sub">${esc(timeAgo(n.created_at))}</p><div class="modal-actions">${mine?`<button class="m-danger" onclick="deleteNote()">Delete</button><button class="m-cancel" onclick="openNoteComposer()">Edit</button>`:""}<button class="m-ok" onclick="closeModal()">Close</button></div></div></div>`);
+}
+function openNoteComposer(){
+ closeModal();
+ const cur=state.notes&&state.notes.get(uid());
+ state.noteDraft={file:null,removeAudio:false};
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back over-story" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>${cur?"Edit note":"New note"}</h3><input id="noteText" class="m-input" maxlength="60" placeholder="Share a thought..." value="${esc(cur?.body||"")}"><label class="st-big">${ico("music")}<span id="noteFileName">${cur&&cur.audio_path?esc("♪ "+(cur.audio_title||"Song")+" (tap to change)"):"Add a song (up to 30 s, 3 MB)"}</span><input type="file" accept="audio/*" hidden onchange="stageNoteAudio(this.files[0])"></label>${cur&&cur.audio_path?`<button id="noteRmSong" class="m-danger" onclick="removeNoteSong()">Remove song</button>`:""}<audio id="notePrev" controls style="display:none;width:100%"></audio><p class="muted">Your note stays for 24 hours. Only people you chat with can see it.</p><div class="modal-actions"><button class="m-cancel" onclick="closeModal()">Cancel</button><button id="notePost" class="m-ok" onclick="postNote()">Share</button></div></div></div>`);
+}
+async function stageNoteAudio(file){
+ if(!file)return;
+ if(!file.type.startsWith("audio/"))return alert("Please choose an audio file (mp3, m4a, wav...).");
+ if(file.size>3*1024*1024)return alert("This song is larger than 3 MB. Choose a shorter clip.");
+ try{
+  const m=await audioMeta(file);
+  if(m.duration>31)return alert("The song clip can be up to 30 seconds.");
+  state.noteDraft={file,removeAudio:false};
+  const pv=document.getElementById("notePrev");
+  if(pv){if(pv.dataset.u)URL.revokeObjectURL(pv.dataset.u);const u=URL.createObjectURL(file);pv.dataset.u=u;pv.src=u;pv.style.display="block"}
+  const fn=document.getElementById("noteFileName");if(fn)fn.textContent="♪ "+file.name;
+ }catch(e){alert(e.message)}
+}
+function removeNoteSong(){
+ state.noteDraft={file:null,removeAudio:true};
+ const fn=document.getElementById("noteFileName");if(fn)fn.textContent="Add a song (up to 30 s, 3 MB)";
+ document.getElementById("noteRmSong")?.remove();
+}
+async function postNote(){
+ const text=(document.getElementById("noteText")?.value||"").trim();
+ const d=state.noteDraft||{},cur=state.notes&&state.notes.get(uid());
+ let audioPath=cur?cur.audio_path||null:null,audioTitle=cur?cur.audio_title||null:null,newPath=null;
+ if(d.removeAudio){audioPath=null;audioTitle=null}
+ if(!text&&!audioPath&&!d.file)return alert("Write something or add a song.");
+ const btn=document.getElementById("notePost");if(btn){btn.disabled=true;btn.textContent="Sharing…"}
+ const reset=()=>{if(btn){btn.disabled=false;btn.textContent="Share"}};
+ try{
+  if(d.file){
+   const ext=(d.file.type.split("/")[1]||"mp3").replace(/[^a-z0-9]/gi,"").slice(0,5)||"mp3";
+   newPath=`${uid()}/note-${crypto.randomUUID()}.${ext}`;
+   const up=await sb.storage.from("ntalk-media").upload(newPath,d.file,{contentType:d.file.type||"audio/mpeg",upsert:false});
+   if(up.error)throw up.error;
+   audioPath=newPath;audioTitle=d.file.name.replace(/\.[^.]+$/,"").slice(0,40);
+  }
+  const {error}=await sb.rpc("set_note",{p_body:text||null,p_audio_path:audioPath,p_audio_title:audioTitle});
+  if(error){if(newPath)sb.storage.from("ntalk-media").remove([newPath]).then(()=>{},()=>{});throw error}
+  if(cur&&cur.audio_path&&cur.audio_path!==audioPath)sb.storage.from("ntalk-media").remove([cur.audio_path]).then(()=>{},()=>{});
+  closeModal();await loadNotes();render();
+ }catch(e){reset();alert("Could not share the note: "+(e.message||e)+"\nRun supabase_notes.sql in Supabase first.")}
+}
+async function deleteNote(){
+ const cur=state.notes&&state.notes.get(uid());if(!cur)return;
+ if(!confirm("Delete your note?"))return;
+ const {error}=await sb.from("notes").delete().eq("user_id",uid());
+ if(error)return alert(error.message);
+ if(cur.audio_path)sb.storage.from("ntalk-media").remove([cur.audio_path]).then(()=>{},()=>{});
+ closeModal();await loadNotes();render();
+}
 async function initBackend(){ await loadNicknames();
  await loadPeople();await loadChats();
  await subscribeMessageChannel();await setupTyping();await initPresence();await setupSignaling();
- loadPrivacy();loadSecretMeta();startLastSeen();markDeliveredAll();
+ loadPrivacy();loadSecretMeta();startLastSeen();loadNotes().then(()=>{if(state.page==="chats")render()});cleanupMyNote();markDeliveredAll();
  loadStatuses().then(()=>{cleanupMyStatuses();if(state.page==="chats"&&!state.story)render()});
  if("Notification" in window&&Notification.permission==="granted")registerPush();
  handleLaunchParams();
@@ -1753,6 +1879,7 @@ window.addEventListener("load",async()=>{
  if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});navigator.serviceWorker.addEventListener("message",e=>{const d=e.data||{};if(d.type==="open_chat")openChatById(d.chat_id);else if(d.type==="call_ready"&&Date.now()-Number(d.ts||0)<60000)announceReady(d.from);else if(d.type==="gcall_ready"&&Date.now()-Number(d.ts||0)<60000)announceGroupReady(d.from,d.chat_id)})}
  document.addEventListener("click",()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().then(r=>{if(r==="granted")registerPush()}).catch(()=>{})},{once:true});
  setupMsgGestures();
+ setupPwToggles();
  document.addEventListener("visibilitychange",()=>{if(!state.user)return;rawTouch();if(document.hidden){clearTimeout(state._lockT);state._lockT=setTimeout(()=>{if(state.secretUnlocked||state.secretOpen)lockSecret()},60000)}else clearTimeout(state._lockT);if(!document.hidden){const c=state.chats[state.activeChat];if(c){c.unread=0;if(!c.is_group)markSeen(c.id)}updateBadge()}});
  window.addEventListener("pagehide",()=>{if(state.user)rawTouch()});
  if(hasSupabase){const {data}=await sb.auth.getSession();if(data.session&&!recoveryMode){await loadProfile(data.session.user);await initBackend()}}

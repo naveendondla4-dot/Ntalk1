@@ -413,3 +413,50 @@ video.media{max-width:100%;border-radius:12px}
 .gc-controls button.end{background:#e11d48}
 .gc-controls button .ui-icon{width:22px;height:22px}
 .gc-controls button.end .ui-icon{transform:rotate(135deg)}
+
+/* ===== NTalk: shorts, secret chats, speaker, video status ===== */
+.lh-actions{display:flex;gap:8px;align-items:center}
+.list-head h2.tap{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+.ui-icon.filled{fill:currentColor}
+.menu-btn .ui-icon{width:18px;height:18px;vertical-align:-3px;margin-right:6px}
+.call-controls button.on,.gc-controls button.on{background:#fff;color:#111}
+.story-body video{max-width:100%;max-height:100%;object-fit:contain;background:#000}
+.cm-row{display:flex;gap:8px;align-items:center}
+.cm-row .m-input{flex:1;min-width:0}
+.shorts{flex:1;min-width:0;height:100dvh;position:relative;background:#000;color:#fff}
+.shorts-head{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;justify-content:space-between;padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;background:linear-gradient(rgba(0,0,0,.55),transparent)}
+.shorts-head b{font-size:20px}
+.shorts-scroll{height:100%;overflow-y:scroll;scroll-snap-type:y mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.shorts-scroll::-webkit-scrollbar{display:none}
+.short{position:relative;height:100%;scroll-snap-align:start;scroll-snap-stop:always;background:#000}
+.short-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.short-shade{position:absolute;left:0;right:0;bottom:0;height:42%;background:linear-gradient(transparent,rgba(0,0,0,.72));pointer-events:none}
+.short-info{position:absolute;left:14px;right:82px;bottom:calc(22px + env(safe-area-inset-bottom,0px));z-index:3}
+.short-user{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.short-user .avatar{width:34px;height:34px;min-width:34px;font-size:14px}
+.short-info p{margin:0;font-size:14px;line-height:1.4;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.short-actions{position:absolute;right:10px;bottom:calc(30px + env(safe-area-inset-bottom,0px));z-index:4;display:flex;flex-direction:column;gap:16px;align-items:center}
+.short-actions button{background:rgba(0,0,0,.35);color:#fff;width:48px;min-height:48px;border-radius:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;padding:6px 0}
+.short-actions button.liked{color:#ff4d6d}
+.short-actions .ui-icon{width:24px;height:24px}
+.short-msg{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#c8cbe0;line-height:1.7;padding:24px}
+@media(max-width:520px){.shorts{height:calc(100dvh - 68px)}}
+
+/* ===== NTalk: password eye, notes ===== */
+.pw-wrap{position:relative;display:block}
+.pw-wrap input{display:block;width:100%;box-sizing:border-box;padding-right:46px !important}
+.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;background:transparent !important;border:0 !important;color:var(--muted);display:grid;place-items:center;padding:0 !important;margin:0 !important;min-height:0}
+.pw-eye svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.chat-row{position:relative}
+.chat-row.has-note{padding-top:32px}
+.note-bub{display:inline-block;max-width:104px;padding:4px 10px;border-radius:14px;background:var(--panel-solid);border:1px solid var(--line);color:var(--text);font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.chat-row .note-bub{position:absolute;left:8px;top:6px;z-index:2}
+.st-item.has-note{padding-top:26px}
+.st-item .note-bub{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:2}
+.note-bub.add{color:var(--muted);border-style:dashed}
+.note-bub.inline{max-width:100%;white-space:normal}
+.note-card{text-align:center;margin:8px 0}
+.note-card audio,.note-modal audio{width:100%;margin-top:8px}
+.note-modal .avatar{width:72px;height:72px;min-width:72px;font-size:28px;margin:0 auto}
+.note-big{text-align:center;font-size:18px;font-weight:700;margin:8px 0;word-break:break-word}
+.note-song{text-align:center;color:var(--accent2);font-size:13px}

@@ -1,11 +1,11 @@
-const CACHE='ntalk-v6';
+const CACHE='ntalk-v7';
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./','./index.html','./style.css','./app.js','./config.js','./manifest.json','./icon.svg'])).catch(()=>{}))});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 
 // network-first: new files always load; cache is only an offline fallback
 self.addEventListener('fetch',e=>{
   if(e.request.method!=='GET'||!e.request.url.startsWith(self.location.origin))return;
-  e.respondWith(fetch(e.request).then(x=>{const copy=x.clone();caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{});return x}).catch(()=>caches.match(e.request).then(r=>r||caches.match('./index.html'))));
+  e.respondWith(fetch(e.request,{cache:'no-cache'}).then(x=>{const copy=x.clone();caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{});return x}).catch(()=>caches.match(e.request).then(r=>r||caches.match('./index.html'))));
 });
 
 // ---------- Web Push ----------

@@ -469,3 +469,14 @@ video.media{max-width:100%;border-radius:12px}
   body.in-chat .sidebar{display:none}
   body.in-chat .main{height:100dvh}
 }
+
+/* ===== NTalk: aligned status + note circles, shorts without bottom bar ===== */
+.st-row{align-items:flex-start}
+.st-row .st-item{padding-top:26px}
+.st-row .st-item .note-bub{position:absolute;top:0;left:50%;transform:translateX(-50%);max-width:84px;z-index:2}
+.st-row .st-item .st-plus{top:62px}
+body.in-chat .sidebar{display:none !important}
+@media(max-width:520px){
+  body.in-chat .main{height:100dvh !important}
+  .shorts{height:100dvh}
+}

@@ -605,7 +605,7 @@ function callSearch(v){
  },350);
 }
 function callFromSearch(type,id){const p=(state.callCandidates||[]).find(x=>x.id===id);closeModal();startCall(type,id,p?.display_name)}
-function profileView(){return `<section class="full-page profile"><header><h2>Profile</h2><button onclick="logout()" class="danger-text">Logout</button></header><div class="profile-top"><label class="profile-avatar-wrap" title="Change photo"><div class="profile-avatar">${state.user?.avatar_url?`<img src="${esc(state.user.avatar_url)}" alt="">`:esc(avatarName(meName()))}</div><span class="avatar-edit">${ico("camera")}</span><input type="file" accept="image/*" hidden onchange="changeAvatar(this.files[0])"></label><h2>${esc(meName())}</h2><p>${esc(state.user?.username||"@user")}</p><span class="status">Online</span></div><div class="settings-card"><button onclick="editProfile()">Edit profile <span>${ico("user")}</span></button><button onclick="toggleLastSeen()">Last seen: ${state.shareLastSeen===false?"Nobody":"Everyone"} <span>${ico("user")}</span></button><button onclick="installApp()">Install NTalk <span>${ico("download")}</span></button><button onclick="enableNotifications()">Notifications: ${notifStatus()} <span>${ico("chat")}</span></button><button onclick="toggleTheme()">Appearance: ${state.theme==="dark"?"Dark":"Light"} <span>${ico("theme")}</span></button><button onclick="alert('Email: '+state.user.email)">Account <span>${ico("user")}</span></button></div></section>`}
+function profileView(){return `<section class="full-page profile"><header><h2>Profile</h2><button onclick="logout()" class="danger-text">Logout</button></header><div class="profile-top"><label class="profile-avatar-wrap" title="Change photo"><div class="profile-avatar">${state.user?.avatar_url?`<img src="${esc(state.user.avatar_url)}" alt="">`:esc(avatarName(meName()))}</div><span class="avatar-edit">${ico("camera")}</span><input type="file" accept="image/*" hidden onchange="changeAvatar(this.files[0])"></label><h2>${esc(meName())}</h2><p>${esc(state.user?.username||"@user")}</p><span class="status">Online</span></div><div class="settings-card"><button onclick="editProfile()">Edit profile <span>${ico("user")}</span></button><button onclick="toggleLastSeen()">Last seen: ${state.shareLastSeen===false?"Nobody":"Everyone"} <span>${ico("user")}</span></button><button onclick="installApp()">Install NTalk <span>${ico("download")}</span></button><button onclick="enableNotifications()">Notifications: ${notifStatus()} <span>${ico("chat")}</span></button><button onclick="forceUpdate()">Update app · v${APP_VERSION} <span>${ico("download")}</span></button><button onclick="toggleTheme()">Appearance: ${state.theme==="dark"?"Dark":"Light"} <span>${ico("theme")}</span></button><button onclick="alert('Email: '+state.user.email)">Account <span>${ico("user")}</span></button></div></section>`}
 function resizeImage(file,size=320){return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{const m=Math.min(img.width,img.height),cv=document.createElement("canvas");cv.width=cv.height=size;cv.getContext("2d").drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,size,size);URL.revokeObjectURL(u);cv.toBlob(b=>b?res(b):rej(new Error("Image error")),"image/jpeg",.85)};img.onerror=()=>rej(new Error("Cannot read this image"));img.src=u})}
 async function changeAvatar(file){
  if(!file||!hasSupabase)return;
@@ -1020,7 +1020,7 @@ function statusRow(){
    return `<div class="st-item" onclick="openStory('${g.user_id}')"><div class="st-ring ${g.allSeen?"seen":"unseen"}">${avatarBox((nickOf(p.id)||p.display_name||p.username),p.avatar_url)}</div><span class="nm">${esc((nickOf(p.id)||p.display_name||p.username))}</span></div>`;
  }).join("");
  const mn=state.notes&&state.notes.get(uid());
- const noteTile=`<div class="st-item${mn?" has-note":" has-note"}" onclick="openNoteComposer()"><span class="note-bub ${mn?"":"add"}" ${mn?`onclick="event.stopPropagation();showNote('${uid()}')"`:""}>${mn?esc(noteText(mn)):"+ Note"}</span><div class="st-ring ${mn?"seen":""}">${avatarBox(meName(),state.user?.avatar_url)}</div><span class="nm">My note</span></div>`;
+ const noteTile=`<div class="st-item has-note" onclick="openNoteComposer()"><span class="note-bub ${mn?"":"add"}" ${mn?`onclick="event.stopPropagation();showNote('${uid()}')"`:""}>${mn?esc(noteText(mn)):"Add note"}</span><div class="st-ring ${mn?"unseen":""}">${avatarBox(meName(),state.user?.avatar_url)}</div><span class="st-plus" onclick="event.stopPropagation();openNoteComposer()">+</span><span class="nm">My note</span></div>`;
  return `<div class="st-row">${me}${noteTile}${others}</div>`;
 }
 /* ---- composer ---- */
@@ -1594,7 +1594,7 @@ async function stageVideo(file){
 /* =====================  SHORTS  ===================== */
 const shortsMuted=()=>state.shortsMuted!==false;
 function openShorts(){state.page="shorts";state.activeChat=null;state.shortsMounted=false;render()}
-function shortsView(){return `<section class="shorts"><header class="shorts-head"><b>Shorts</b><button class="round" onclick="openShortUpload()" title="Upload a short">${ico("plus")}</button></header><div id="shortsScroll" class="shorts-scroll"></div></section>`}
+function shortsView(){return `<section class="shorts"><header class="shorts-head"><button class="round" onclick="leaveShorts()" title="Back">‹</button><b>Shorts</b><button class="round" onclick="openShortUpload()" title="Upload a short">${ico("plus")}</button></header><div id="shortsScroll" class="shorts-scroll"></div></section>`}
 async function initShorts(){
  state.shortsList=[];state.shortsEnd=false;state.shortsLoading=false;
  if(state.shortsObs){state.shortsObs.disconnect();state.shortsObs=null}
@@ -1863,7 +1863,20 @@ async function deleteNote(){
  if(cur.audio_path)sb.storage.from("ntalk-media").remove([cur.audio_path]).then(()=>{},()=>{});
  closeModal();await loadNotes();render();
 }
-/* =====================  PHONE BACK BUTTON  ===================== */
+/* =====================  PHONE BACK BUTTON (layers)  ===================== */
+const APP_VERSION="2026-10-13-d";
+const nav={depth:0,ignore:0,timer:null};
+function layerCount(){
+ let n=0;
+ if(document.getElementById("mediaView"))n++;
+ if(document.getElementById("storyView"))n++;
+ if(document.getElementById("modalRoot"))n++;
+ if(state.call||state.gcall||state.ginvite||document.getElementById("gcallView"))n++;
+ if(state.user&&state.activeChat!==null&&(state.page==="chats"||state.page==="groups"))n++;
+ if(state.user&&state.secretOpen)n++;
+ if(state.user&&state.page!=="chats")n++;
+ return n;
+}
 function topLayerClose(){
  if(document.getElementById("mediaView")){closeMedia();return true}
  if(document.getElementById("storyView")){closeStory();return true}
@@ -1874,17 +1887,49 @@ function topLayerClose(){
  if(state.page!=="chats"){state.page="chats";state.shortsMounted=false;render();return true}
  return false;
 }
-function setupBackNav(){
+function syncNav(){
+ const want=state.user?layerCount():0;
  try{
-  history.replaceState({nt:"root"},"");
-  history.pushState({nt:"top"},"");
-  window.addEventListener("popstate",()=>{
-   if(!state.user){history.back();return}
-   if(topLayerClose()){history.pushState({nt:"top"},"");return}
-   history.back();
-  });
- }catch(e){console.warn("back nav",e)}
+  while(nav.depth<want){history.pushState({nt:nav.depth+1},"");nav.depth++}
+  if(nav.depth>want){
+   const k=nav.depth-want;nav.depth=want;nav.ignore++;
+   clearTimeout(nav.timer);nav.timer=setTimeout(()=>{nav.ignore=0},900);
+   history.go(-k);
+  }
+ }catch(e){console.warn("nav",e)}
 }
+function setupBackNav(){
+ window.addEventListener("popstate",()=>{
+  if(nav.ignore>0){nav.ignore--;return}
+  nav.depth=Math.max(0,nav.depth-1);
+  if(!state.user)return;
+  topLayerClose();
+  syncNav();
+ });
+ new MutationObserver(()=>syncNav()).observe(document.body,{childList:true});
+}
+function leaveShorts(){state.page="chats";state.shortsMounted=false;render()}
+async function forceUpdate(){
+ try{
+  if("serviceWorker" in navigator){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}
+  if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}
+ }catch(e){console.warn(e)}
+ location.reload();
+}
+function injectCriticalCss(){
+ if(document.getElementById("ntCritical"))return;
+ const st=document.createElement("style");st.id="ntCritical";
+ st.textContent=`
+ .st-row{align-items:flex-start}
+ .st-row .st-item{padding-top:26px}
+ .st-row .st-item .note-bub{position:absolute;top:0;left:50%;transform:translateX(-50%);max-width:84px;z-index:2}
+ .st-row .st-item .st-plus{top:62px}
+ body.in-chat .sidebar{display:none !important}
+ @media(max-width:520px){body.in-chat .main{height:100dvh !important}}
+ `;
+ document.head.appendChild(st);
+}
+
 async function initBackend(){ await loadNicknames();
  await loadPeople();await loadChats();
  await subscribeMessageChannel();await setupTyping();await initPresence();await setupSignaling();
@@ -1899,7 +1944,8 @@ function render(){
  const _m=document.getElementById("messages"),_st=_m?_m.scrollTop:0,_near=!_m||(_m.scrollHeight-_m.scrollTop-_m.clientHeight<140);
  const _d=document.getElementById("dirSearch"),_dv=_d?_d.value:null,_df=!!_d&&document.activeElement===_d,_ds=_d?_d.selectionStart:0;
  document.body.dataset.theme=state.theme;
- document.body.classList.toggle("in-chat",!!state.user&&state.activeChat!==null&&(state.page==="chats"||state.page==="groups"));
+ const hideNav=!!state.user&&(state.page==="shorts"||(state.activeChat!==null&&(state.page==="chats"||state.page==="groups")));
+ document.body.classList.toggle("in-chat",hideNav);
  if(recoveryMode){app.innerHTML=resetView();return}
  if(!state.user){app.innerHTML=loginView();return}
  if(state.user.needsSetup){app.innerHTML=setupView();return}
@@ -1909,8 +1955,10 @@ function render(){
  const _n=document.getElementById("msg");if(_n&&_kv){_n.value=_kv;if(_kf)_n.focus()}
  const _dn=document.getElementById("dirSearch");if(_dn&&_dv!==null){if(_dn.value!==_dv)_dn.value=_dv;if(_df){_dn.focus();try{_dn.setSelectionRange(_ds,_ds)}catch{}}}
  const _mm=document.getElementById("messages");if(_mm){if(_near||state.forceScroll)_mm.scrollTop=_mm.scrollHeight;else _mm.scrollTop=_st}
+ {const small=window.matchMedia&&window.matchMedia("(max-width:700px)").matches;const sbEl=app.querySelector(".sidebar"),mnEl=app.querySelector(".main"),shEl=app.querySelector(".shorts");if(sbEl)sbEl.style.display=(hideNav&&small)?"none":"";if(mnEl)mnEl.style.height=(hideNav&&small)?"100dvh":"";if(shEl)shEl.style.height="100dvh"}
  if(state.page==="shorts"){if(!state.shortsMounted){state.shortsMounted=true;initShorts()}}else state.shortsMounted=false;
  state.forceScroll=false;
+ syncNav();
 }
 window.addEventListener("load",async()=>{
  if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});navigator.serviceWorker.addEventListener("message",e=>{const d=e.data||{};if(d.type==="open_chat")openChatById(d.chat_id);else if(d.type==="call_ready"&&Date.now()-Number(d.ts||0)<60000)announceReady(d.from);else if(d.type==="gcall_ready"&&Date.now()-Number(d.ts||0)<60000)announceGroupReady(d.from,d.chat_id)})}
@@ -1918,6 +1966,7 @@ window.addEventListener("load",async()=>{
  setupMsgGestures();
  setupPwToggles();
  setupBackNav();
+ injectCriticalCss();
  document.addEventListener("visibilitychange",()=>{if(!state.user)return;rawTouch();if(document.hidden){clearTimeout(state._lockT);state._lockT=setTimeout(()=>{if(state.secretUnlocked||state.secretOpen)lockSecret()},60000)}else clearTimeout(state._lockT);if(!document.hidden){const c=state.chats[state.activeChat];if(c){c.unread=0;if(!c.is_group)markSeen(c.id)}updateBadge()}});
  window.addEventListener("pagehide",()=>{if(state.user)rawTouch()});
  if(hasSupabase){const {data}=await sb.auth.getSession();if(data.session&&!recoveryMode){await loadProfile(data.session.user);await initBackend()}}

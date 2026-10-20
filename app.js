@@ -140,7 +140,7 @@ async function logout(){
  try{if(state.channel)await sb.removeChannel(state.channel);if(state.presence)await sb.removeChannel(state.presence);if(state.signal)await sb.removeChannel(state.signal);if(state.typingCh)await sb.removeChannel(state.typingCh);await unregisterPush();await sb.auth.signOut();}catch{}
  clearInterval(state.lsTimer);state.lsTimer=null;state.pushActive=false;state.replyTo=null;state.statuses=[];state.statusMine=null;stopRing();
  state.channel=null;state.channelUser=null;state.typingCh=null;state.typingUser=null;state.presence=null;state.signal=null;state.activeChat=null;state.page="chats";state.chatTab="chats";
- state.user=null; state.chats=[]; state.people=[]; state.messages=[]; localStorage.removeItem("ntalk_user"); endCall(false); leaveGroupCall(false); dismissGroupInvite(); state.callLogs=[]; state.notes=new Map(); state.secretIds=new Set(); state.secretUnlocked=false; state.secretOpen=false; state.hasSecretPin=null; state.shortsMounted=false; state.searchResults=[]; state.peopleQuery=""; render();
+ state.user=null; state.chats=[]; state.people=[]; state.messages=[]; localStorage.removeItem("ntalk_user"); endCall(false); leaveGroupCall(false); dismissGroupInvite(); state.callLogs=[]; state.prefs=new Map(); state.notes=new Map(); state.secretIds=new Set(); state.secretUnlocked=false; state.secretOpen=false; state.hasSecretPin=null; state.shortsMounted=false; state.searchResults=[]; state.peopleQuery=""; render();
 }
 function setTheme(t){state.theme=t;localStorage.setItem("ntalk_theme",t);render()}
 function toggleTheme(){setTheme(state.theme==="dark"?"light":"dark")}
@@ -187,7 +187,7 @@ async function loadChats(){
  if(pc.error)console.warn(pc.error);
  if(gc.error)console.warn(gc.error);
  const old=new Map(state.chats.map(c=>[c.id,c]));
- const lastMsg=async id=>{const {data}=await sb.from("messages").select("content,message_type,created_at").eq("chat_id",id).order("created_at",{ascending:false}).limit(1).maybeSingle();return data};
+ const lastMsg=async id=>{let q=sb.from("messages").select("content,message_type,created_at").eq("chat_id",id);const ca=prefOf(id).cleared_at;if(ca)q=q.gt("created_at",ca);const {data}=await q.order("created_at",{ascending:false}).limit(1).maybeSingle();return data};
  const label=l=>l?(l.content||(l.message_type==="image"?"Photo":l.message_type==="video"?"Video":"File")):"";
  const seen=new Set(), priv=[];
  for(const r of (pc.data||[])){if(seen.has(r.other_user_id))continue;seen.add(r.other_user_id);priv.push(r)}
@@ -196,13 +196,13 @@ async function loadChats(){
  const result=[];
  priv.forEach((r,i)=>{
    const person=state.people.find(p=>p.id===r.other_user_id), last=lasts[i], o=old.get(r.chat_id);
-   result.push({id:r.chat_id,is_group:false,user_id:r.other_user_id,avatar_url:person?.avatar_url||null,name:nickOf(r.other_user_id)||person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:label(last)||"Tap to chat",time:last?.created_at||"",hasMsg:!!last||!!o?.hasMsg,unread:o?.unread||0});
+   result.push({id:r.chat_id,is_group:false,user_id:r.other_user_id,avatar_url:person?.avatar_url||null,name:nickOf(r.other_user_id)||person?.display_name||"NTalk User",username:person?"@"+person.username:"",online:false,msg:label(last)||"Tap to chat",time:last?.created_at||"",hasMsg:!!last||!!o?.hasMsg||!!prefOf(r.chat_id).cleared_at,unread:o?.unread||0});
  });
  groups.forEach((g,gi)=>{
    const last=lasts[priv.length+gi], o=old.get(g.chat_id);
    result.push({id:g.chat_id,is_group:true,name:g.name,members:Number(g.member_count)||0,created_by:g.created_by,msg:label(last)||"Group created",time:last?.created_at||"",hasMsg:true,unread:o?.unread||0});
  });
- result.sort((a,b)=>String(b.time||"").localeCompare(String(a.time||"")));
+ result.sort((a,b)=>(prefOf(b.id).pinned?1:0)-(prefOf(a.id).pinned?1:0)||String(b.time||"").localeCompare(String(a.time||"")));
  const activeId=state.chats[state.activeChat]?.id;
  state.chats=result;
  if(activeId){const k=result.findIndex(c=>c.id===activeId);state.activeChat=k>=0?k:null}
@@ -251,7 +251,7 @@ function conversation(){
  return `<section class="conversation"><header class="chat-head" onclick="headClick(event)"><button class="mobile-back" onclick="state.activeChat=null;render()">‹</button>
  ${c.is_group?`<div class="avatar group">${ico("users")}</div>`:avatarBox(c.name,c.avatar_url,c.online?"online":"")}<div class="hd-name"><b>${esc(c.name)}</b><small>${esc(sub)}</small></div>
  <div class="head-actions">${calls}<button onclick="chatInfo()">${ico("more")}</button></div></header>
- <div id="messages" class="messages">${state.messages.map(messageBubble).join("")||`<div class="empty-chat">No messages yet. Say hello 👋</div>`}</div>
+ <div id="messages" class="messages">${state.messages.map(messageBubble).join("")||`<div class="empty-chat">No messages yet. Say hello 👋</div>`}${typingBubble(c)}</div>
  ${rb}<form class="composer" onsubmit="sendMessage(event)"><button type="button" onclick="emoji()">${ico("smile")}</button><input id="msg" autocomplete="off" placeholder="Type a message..." oninput="typingChanged(this.value)"><label class="attach" title="Attach">${ico("attach")}<input id="file" type="file" hidden onchange="uploadMedia(this.files[0])"></label><button class="send" type="submit">${ico("send")}</button></form>
  </section>`;
 }
@@ -299,7 +299,7 @@ async function signedUrl(path){
 }
 async function loadMessages(c){
  if(!hasSupabase||!c)return;
- const {data,error}=await sb.from("messages").select("*").eq("chat_id",c.id).order("created_at",{ascending:true});
+ let q=sb.from("messages").select("*").eq("chat_id",c.id);const ca=prefOf(c.id).cleared_at;if(ca)q=q.gt("created_at",ca);const {data,error}=await q.order("created_at",{ascending:true});
  if(error){console.warn(error);state.messages=[];return;}
  state.messages=data||[];
  await Promise.all(state.messages.filter(m=>m.file_path).map(async m=>{m._url=await signedUrl(m.file_path)}));
@@ -357,7 +357,7 @@ async function onNewMessage(payload){
  let c=state.chats.find(x=>x.id===m.chat_id);
  if(!c){await loadChats();c=state.chats.find(x=>x.id===m.chat_id)}
  if(!c)return;
- c.hasMsg=true;
+ c.hasMsg=true;c.typing=false;
  const isOpen=state.activeChat!==null&&state.chats[state.activeChat]?.id===c.id;
  const visible=isOpen&&!document.hidden;
  if(m.file_path)m._url=await signedUrl(m.file_path);
@@ -413,6 +413,7 @@ function showToast(title,body,chatId){
  document.body.appendChild(t);setTimeout(()=>t.remove(),5000);
 }
 async function notifyIncoming(c,m){
+ if(prefOf(c.id).muted)return;
  const sec=isSecret(c.id);
  const who=sec?"NTalk":(c.is_group?`${senderName(m.sender_id)} · ${c.name}`:c.name);
  const body=sec?"New message":(m.content||(m.message_type==="image"?"📷 Photo":m.message_type==="video"?"🎥 Video":"📎 File"));
@@ -443,9 +444,6 @@ const notifStatus=()=>!("Notification" in window)?"Unsupported":Notification.per
 function groupsView(){
  const rows=state.chats.map((c,i)=>c.is_group&&!isSecret(c.id)?groupRow(c,i):"").join("");
  return `<section class="chat-list"><header class="list-head"><div><h2>Groups</h2><p>Chat with many people</p></div><button class="round" onclick="openGroupModal()" title="New group">${ico("plus")}</button></header><div id="directoryRows">${rows||`<div class="empty-small">No groups yet. Tap <b>+</b> to create one.</div>`}</div></section>`;
-}
-function groupRow(c,i){
- return `<button class="chat-row" onclick="openChat(${i})"><div class="avatar group">${ico("users")}</div><div class="chat-info"><b>${esc(c.name)}</b><span>${esc(c.msg||"Group created")}</span></div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
 }
 function closeModal(){document.getElementById("modalRoot")?.remove()}
 /* ---------- member picker (contacts + search) ---------- */
@@ -605,7 +603,6 @@ function callSearch(v){
  },350);
 }
 function callFromSearch(type,id){const p=(state.callCandidates||[]).find(x=>x.id===id);closeModal();startCall(type,id,p?.display_name)}
-function profileView(){return `<section class="full-page profile"><header><h2>Profile</h2><button onclick="logout()" class="danger-text">Logout</button></header><div class="profile-top"><label class="profile-avatar-wrap" title="Change photo"><div class="profile-avatar">${state.user?.avatar_url?`<img src="${esc(state.user.avatar_url)}" alt="">`:esc(avatarName(meName()))}</div><span class="avatar-edit">${ico("camera")}</span><input type="file" accept="image/*" hidden onchange="changeAvatar(this.files[0])"></label><h2>${esc(meName())}</h2><p>${esc(state.user?.username||"@user")}</p><span class="status">Online</span></div><div class="settings-card"><button onclick="editProfile()">Edit profile <span>${ico("user")}</span></button><button onclick="toggleLastSeen()">Last seen: ${state.shareLastSeen===false?"Nobody":"Everyone"} <span>${ico("user")}</span></button><button onclick="installApp()">Install NTalk <span>${ico("download")}</span></button><button onclick="enableNotifications()">Notifications: ${notifStatus()} <span>${ico("chat")}</span></button><button onclick="forceUpdate()">Update app · v${APP_VERSION} <span>${ico("download")}</span></button><button onclick="toggleTheme()">Appearance: ${state.theme==="dark"?"Dark":"Light"} <span>${ico("theme")}</span></button><button onclick="alert('Email: '+state.user.email)">Account <span>${ico("user")}</span></button></div></section>`}
 function resizeImage(file,size=320){return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{const m=Math.min(img.width,img.height),cv=document.createElement("canvas");cv.width=cv.height=size;cv.getContext("2d").drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,size,size);URL.revokeObjectURL(u);cv.toBlob(b=>b?res(b):rej(new Error("Image error")),"image/jpeg",.85)};img.onerror=()=>rej(new Error("Cannot read this image"));img.src=u})}
 async function changeAvatar(file){
  if(!file||!hasSupabase)return;
@@ -816,7 +813,7 @@ async function fetchLastSeen(c){
  if(!hasSupabase||!c||c.is_group||!c.user_id)return;
  const {data,error}=await sb.rpc("get_last_seen",{target:c.user_id});
  if(error){console.warn("last seen",error);return}
- c.lastSeen=data||null;
+ c.lastSeen=(typeof data==="string"&&!isNaN(new Date(data).getTime()))?data:null;
  if(state.chats[state.activeChat]?.id===c.id)render();
 }
 const rawTouch=()=>{if(hasSupabase&&uid())sb.rpc("touch_last_seen").then(()=>{},()=>{})};
@@ -853,7 +850,7 @@ function headClick(e){
  if(e.target.closest("button"))return;
  if(!e.target.closest(".avatar,.hd-name"))return;
  const c=state.chats[state.activeChat];if(!c)return;
- if(c.is_group)groupInfo();else openProfileCard();
+ if(c.is_group)groupInfo();else openContactPage(c.user_id);
 }
 function openPhotoUrl(url){
  document.getElementById("mediaView")?.remove();
@@ -1423,7 +1420,7 @@ function editNickname(targetId){
 function saveNicknameFromModal(targetId,remove){
  const v=remove?"":(document.getElementById("nickIn")?.value||"");
  closeModal();
- saveNickname(targetId,v);
+ saveNickname(targetId,v).then(()=>{if(document.getElementById("contactPage"))openContactPage(targetId)});
 }
 /* =====================  ICONS (extra)  ===================== */
 const EXTRA_ICONS={
@@ -1516,7 +1513,7 @@ async function secretForgot(){
 }
 async function openSecret(){
  const ok=await unlockSecret();if(!ok)return;
- state.secretOpen=true;state.chatTab="chats";state.activeChat=null;render();
+ state.page="chats";state.secretOpen=true;state.chatTab="chats";state.activeChat=null;render();
 }
 function lockSecret(){state.secretUnlocked=false;state.secretOpen=false;if(state.user){if(state.activeChat!==null&&isSecret(state.chats[state.activeChat]?.id))state.activeChat=null;render()}}
 function secretList(){
@@ -1533,12 +1530,6 @@ async function doChangeSecret(){
  const {error}=await sb.rpc("secret_set_pin",{new_pin:n,old_pin:o});
  if(error)return alert(error.message);
  closeModal();showToast("Secret chats","Password changed","");
-}
-function chatInfo(){
- const c=state.chats[state.activeChat];if(!c)return;
- closeModal();
- const sec=isSecret(c.id);
- document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal"><button class="menu-btn" onclick="closeModal();${c.is_group?"groupInfo()":"openProfileCard()"}">${c.is_group?"Group info":"Contact info"}</button><button class="menu-btn" onclick="toggleSecretChat('${c.id}')">${ico("lock")} ${sec?"Remove from secret chats":"Move to secret chats"}</button><button class="menu-btn" onclick="closeModal()">Cancel</button></div></div>`);
 }
 async function toggleSecretChat(id){
  closeModal();
@@ -1773,10 +1764,6 @@ function noteBubble(userId,extra=""){
  const n=state.notes&&state.notes.get(userId);if(!n)return "";
  return `<span class="note-bub ${extra}" onclick="event.stopPropagation();showNote('${userId}')">${esc(noteText(n))}</span>`;
 }
-function chatRow(c,i){
- const hasNote=!c.is_group&&state.notes&&state.notes.has(c.user_id);
- return `<button class="chat-row${hasNote?" has-note":""}" onclick="openChat(${i})">${hasNote?noteBubble(c.user_id):""}${avatarBox(c.name,c.avatar_url,c.online?"online":"")}<div class="chat-info"><b>${esc(c.name)}</b><span>${esc(c.msg||"Tap to chat")}</span></div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
-}
 async function loadNotes(){
  if(!hasSupabase||!uid())return;
  const {data,error}=await sb.from("notes").select("*").gt("expires_at",new Date().toISOString());
@@ -1864,13 +1851,14 @@ async function deleteNote(){
  closeModal();await loadNotes();render();
 }
 /* =====================  PHONE BACK BUTTON (layers)  ===================== */
-const APP_VERSION="2026-10-13-d";
-const nav={depth:0,ignore:0,timer:null};
+const APP_VERSION="2026-10-14-a";
+const nav={depth:0,guard:false,busy:false,timer:null,noClickUntil:0};
 function layerCount(){
  let n=0;
  if(document.getElementById("mediaView"))n++;
  if(document.getElementById("storyView"))n++;
  if(document.getElementById("modalRoot"))n++;
+ if(document.getElementById("contactPage"))n++;
  if(state.call||state.gcall||state.ginvite||document.getElementById("gcallView"))n++;
  if(state.user&&state.activeChat!==null&&(state.page==="chats"||state.page==="groups"))n++;
  if(state.user&&state.secretOpen)n++;
@@ -1881,31 +1869,44 @@ function topLayerClose(){
  if(document.getElementById("mediaView")){closeMedia();return true}
  if(document.getElementById("storyView")){closeStory();return true}
  if(document.getElementById("modalRoot")){if(secretResolve)secretCancel();else closeModal();return true}
+ if(document.getElementById("contactPage")){closeContactPage();return true}
  if(state.call||state.gcall||state.ginvite||document.getElementById("gcallView"))return true;
  if(state.activeChat!==null&&(state.page==="chats"||state.page==="groups")){state.activeChat=null;state.messages=[];render();return true}
  if(state.secretOpen){state.secretOpen=false;render();return true}
  if(state.page!=="chats"){state.page="chats";state.shortsMounted=false;render();return true}
  return false;
 }
+function ensureGuard(){
+ if(!state.user||nav.guard)return;
+ try{history.pushState({nt:"guard"},"");nav.guard=true}catch(e){console.warn("nav guard",e)}
+}
 function syncNav(){
+ if(nav.busy)return;
  const want=state.user?layerCount():0;
  try{
-  while(nav.depth<want){history.pushState({nt:nav.depth+1},"");nav.depth++}
-  if(nav.depth>want){
-   const k=nav.depth-want;nav.depth=want;nav.ignore++;
-   clearTimeout(nav.timer);nav.timer=setTimeout(()=>{nav.ignore=0},900);
+  if(nav.depth<want){
+   ensureGuard();
+   while(nav.depth<want){history.pushState({nt:nav.depth+1},"");nav.depth++}
+  }else if(nav.depth>want){
+   const k=nav.depth-want;nav.depth=want;nav.busy=true;
+   clearTimeout(nav.timer);nav.timer=setTimeout(()=>{nav.busy=false;syncNav()},900);
    history.go(-k);
   }
  }catch(e){console.warn("nav",e)}
 }
+function showExitDialog(){
+ if(document.getElementById("exitDlg"))return;
+ document.body.insertAdjacentHTML("beforeend",`<div id="exitDlg" class="modal-back over-story"><div class="modal"><h3>Exit NTalk?</h3><p class="muted">Press back again or tap Yes to close the app.</p><div class="modal-actions"><button class="m-cancel" onclick="exitNo()">No</button><button class="m-ok" onclick="exitYes()">Yes</button></div></div></div>`);
+}
+function exitNo(){document.getElementById("exitDlg")?.remove();ensureGuard()}
+function exitYes(){document.getElementById("exitDlg")?.remove();nav.guard=false;history.back();setTimeout(()=>{try{window.close()}catch{}},250)}
 function setupBackNav(){
  window.addEventListener("popstate",()=>{
-  if(nav.ignore>0){nav.ignore--;return}
-  nav.depth=Math.max(0,nav.depth-1);
-  if(!state.user)return;
-  topLayerClose();
-  syncNav();
+  if(nav.busy){nav.busy=false;clearTimeout(nav.timer);syncNav();return}
+  if(nav.depth>0){nav.depth--;topLayerClose();syncNav();return}
+  if(nav.guard){nav.guard=false;if(state.user)showExitDialog()}
  });
+ document.addEventListener("pointerdown",()=>{if(document.getElementById("exitDlg"))return;ensureGuard()},{passive:true});
  new MutationObserver(()=>syncNav()).observe(document.body,{childList:true});
 }
 function leaveShorts(){state.page="chats";state.shortsMounted=false;render()}
@@ -1930,7 +1931,122 @@ function injectCriticalCss(){
  document.head.appendChild(st);
 }
 
-async function initBackend(){ await loadNicknames();
+/* =====================  CHAT OPTIONS (pin, mute, clear, long-press menu)  ===================== */
+const prefOf=id=>(state.prefs&&state.prefs.get(id))||{};
+async function loadPrefs(){
+ if(!hasSupabase||!uid())return;
+ const {data,error}=await sb.from("chat_prefs").select("chat_id,pinned,muted,cleared_at").eq("owner_id",uid());
+ if(error){console.warn("chat_prefs",error);if(!state.prefs)state.prefs=new Map();return}
+ state.prefs=new Map((data||[]).map(r=>[r.chat_id,{pinned:r.pinned,muted:r.muted,cleared_at:r.cleared_at}]));
+}
+async function setPref(chatId,patch){
+ const cur=prefOf(chatId);
+ const {error}=await sb.from("chat_prefs").upsert({owner_id:uid(),chat_id:chatId,...patch,updated_at:new Date().toISOString()},{onConflict:"owner_id,chat_id"});
+ if(error){alert(error.message+"\nRun supabase_chat_prefs.sql in Supabase first.");return false}
+ if(!state.prefs)state.prefs=new Map();
+ state.prefs.set(chatId,{...cur,...patch});return true;
+}
+function resortChats(){
+ const activeId=state.chats[state.activeChat]?.id;
+ state.chats.sort((a,b)=>(prefOf(b.id).pinned?1:0)-(prefOf(a.id).pinned?1:0)||String(b.time||"").localeCompare(String(a.time||"")));
+ if(activeId){const k=state.chats.findIndex(c=>c.id===activeId);state.activeChat=k>=0?k:null}
+}
+async function togglePin(id){closeModal();if(await setPref(id,{pinned:!prefOf(id).pinned})){resortChats();render()}}
+async function toggleChatMute(id){closeModal();if(await setPref(id,{muted:!prefOf(id).muted}))render()}
+function markChatRead(id){closeModal();const c=state.chats.find(x=>x.id===id);if(c){c.unread=0;updateBadge();if(!c.is_group)markSeen(id)}render()}
+async function clearChat(id){
+ closeModal();
+ if(!confirm("Clear this chat? Messages are removed only for you."))return;
+ if(!(await setPref(id,{cleared_at:new Date().toISOString()})))return;
+ const c=state.chats.find(x=>x.id===id);
+ if(c){c.msg="";c.unread=0;c.hasMsg=true}
+ if(state.chats[state.activeChat]?.id===id)state.messages=[];
+ updateBadge();render();
+}
+function rowFlags(c){const p=prefOf(c.id);return `${p.pinned?'<span class="rf">📌</span>':""}${p.muted?'<span class="rf">🔇</span>':""}`}
+function chatRow(c,i){
+ const hasNote=!c.is_group&&state.notes&&state.notes.has(c.user_id);
+ const prev=(c.typing&&!c.is_group)?`<span class="typing-pv">typing…</span>`:`<span>${esc(c.msg||"Tap to chat")}</span>`;
+ return `<button class="chat-row${hasNote?" has-note":""}" data-cid="${c.id}" onclick="openChat(${i})">${hasNote?noteBubble(c.user_id):""}${avatarBox(c.name,c.avatar_url,c.online?"online":"")}<div class="chat-info"><b>${esc(c.name)}</b>${prev}</div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${rowFlags(c)}${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
+}
+function groupRow(c,i){
+ return `<button class="chat-row" data-cid="${c.id}" onclick="openChat(${i})"><div class="avatar group">${ico("users")}</div><div class="chat-info"><b>${esc(c.name)}</b><span>${esc(c.msg||"Group created")}</span></div><div class="chat-meta"><small>${esc(fmt(c.time)||"")}</small>${rowFlags(c)}${c.unread?`<em>${c.unread}</em>`:""}</div></button>`;
+}
+function chatMenuFor(id){
+ const c=state.chats.find(x=>x.id===id);if(!c)return;
+ closeModal();
+ const p=prefOf(id),sec=isSecret(id);
+ const it=(fn,label,icon)=>`<button class="menu-btn" onclick="${fn}">${ico(icon)} ${label}</button>`;
+ document.body.insertAdjacentHTML("beforeend",`<div id="modalRoot" class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal"><h3>${esc(c.name)}</h3>${it(`closeModal();openContactFor('${id}')`,c.is_group?"Group info":"Contact info","user")}${it(`togglePin('${id}')`,p.pinned?"Unpin chat":"Pin chat","check")}${it(`toggleChatMute('${id}')`,p.muted?"Unmute notifications":"Mute notifications",p.muted?"speaker":"mute")}${c.unread?it(`markChatRead('${id}')`,"Mark as read","check"):""}${it(`toggleSecretChat('${id}')`,sec?"Remove from secret chats":"Move to secret chats","lock")}${it(`clearChat('${id}')`,"Clear chat","trash")}<button class="menu-btn" onclick="closeModal()">Cancel</button></div></div>`);
+}
+function chatInfo(){const c=state.chats[state.activeChat];if(c)chatMenuFor(c.id)}
+async function openContactFor(id){
+ const c=state.chats.find(x=>x.id===id);if(!c)return;
+ if(c.is_group){await openChat(state.chats.indexOf(c));groupInfo();return}
+ openContactPage(c.user_id);
+}
+function setupRowGestures(){
+ let t=null,sx=0,sy=0,cid=null;
+ const clear=()=>{clearTimeout(t);t=null};
+ document.addEventListener("pointerdown",e=>{
+  const r=e.target.closest?.(".chat-row[data-cid]");
+  if(!r||e.target.closest(".note-bub")){cid=null;return}
+  cid=r.dataset.cid;sx=e.clientX;sy=e.clientY;clear();
+  t=setTimeout(()=>{t=null;nav.noClickUntil=Date.now()+700;chatMenuFor(cid)},480);
+ });
+ document.addEventListener("pointermove",e=>{if(cid&&(Math.abs(e.clientX-sx)>10||Math.abs(e.clientY-sy)>10))clear()});
+ ["pointerup","pointercancel"].forEach(ev=>document.addEventListener(ev,()=>{clear();cid=null}));
+ document.addEventListener("contextmenu",e=>{const r=e.target.closest?.(".chat-row[data-cid]");if(r){e.preventDefault();clear();nav.noClickUntil=Date.now()+700;chatMenuFor(r.dataset.cid)}});
+ document.addEventListener("click",e=>{if(Date.now()<nav.noClickUntil&&e.target.closest?.(".chat-row")){e.stopPropagation();e.preventDefault()}},true);
+}
+
+/* =====================  TYPING DOTS  ===================== */
+const typingBubble=c=>(c&&c.typing&&!c.is_group)?`<div class="bubble them typing-bub"><span class="dots"><i></i><i></i><i></i></span></div>`:"";
+
+/* =====================  CONTACT INFO PAGE  ===================== */
+async function fetchChatMedia(chatId){
+ let q=sb.from("messages").select("id,file_path,mime_type,file_name,created_at").eq("chat_id",chatId).not("file_path","is",null);
+ const ca=prefOf(chatId).cleared_at;if(ca)q=q.gt("created_at",ca);
+ const {data}=await q.order("created_at",{ascending:false}).limit(24);
+ return data||[];
+}
+function openVideoUrl(url){
+ document.getElementById("mediaView")?.remove();
+ document.body.insertAdjacentHTML("beforeend",`<div id="mediaView" class="media-view" onclick="if(event.target===this)closeMedia()"><button class="mv-close" onclick="closeMedia()">✕</button><video src="${esc(url)}" controls autoplay playsinline style="max-width:100%;max-height:88dvh"></video></div>`);
+}
+function closeContactPage(){document.getElementById("contactPage")?.remove()}
+async function openContactPage(userId){
+ const p=state.people.find(x=>x.id===userId)||{};
+ const c=state.chats.find(x=>!x.is_group&&x.user_id===userId);
+ if(c)await fetchLastSeen(c);
+ const nick=nickOf(userId),name=nick||p.display_name||p.username||"User";
+ const url=p.avatar_url||(c&&c.avatar_url)||"";
+ const nt=state.notes&&state.notes.get(userId);let ntUrl="";
+ if(nt&&nt.audio_path)ntUrl=(await signedUrl(nt.audio_path))||"";
+ const online=(state.onlineUsers||[]).includes(userId);
+ const status=online?"Online":(c&&c.lastSeen?fmtLastSeen(c.lastSeen):"Offline");
+ let media=[];
+ if(c){
+  const act=state.chats[state.activeChat];
+  const all=(act&&act.id===c.id)?state.messages.filter(m=>m.file_path):await fetchChatMedia(c.id);
+  media=all.filter(m=>/^(image|video)\//.test(m.mime_type||"")).slice(-12).reverse();
+  await Promise.all(media.map(async m=>{if(!m._url)m._url=await signedUrl(m.file_path)}));
+ }
+ closeContactPage();
+ const tile=m=>(m.mime_type||"").startsWith("video/")?`<div class="cp-tile" onclick="openVideoUrl('${esc(m._url||"")}')"><video src="${esc(m._url||"")}" muted playsinline preload="metadata"></video><span class="cp-play">▶</span></div>`:`<div class="cp-tile" onclick="openPhotoUrl('${esc(m._url||"")}')"><img src="${esc(m._url||"")}" alt=""></div>`;
+ document.body.insertAdjacentHTML("beforeend",`<div id="contactPage" class="cpage"><header class="cp-head"><button class="cp-back" onclick="closeContactPage()" aria-label="Back">‹</button><b>Contact info</b></header><div class="cp-body"><div class="cp-hero"><div class="cp-photo" ${url?`onclick="openPhotoUrl('${esc(url)}')"`:""}>${url?`<img src="${esc(url)}" alt="">`:esc(avatarName(name))}</div><h2>${esc(name)}</h2><p class="cp-user">@${esc(p.username||"")}</p><p class="cp-status ${online?"on":""}">${esc(status)}</p><div class="cp-actions"><button onclick="cpMessage('${userId}')">${ico("chat")}<span>Message</span></button><button onclick="cpCall('voice','${userId}')">${ico("phone")}<span>Voice</span></button><button onclick="cpCall('video','${userId}')">${ico("video")}<span>Video</span></button></div></div>${nt?`<div class="cp-card"><div class="cp-label">Note</div><div class="note-big sm">${esc(noteText(nt))}</div>${ntUrl?`<audio controls src="${esc(ntUrl)}" style="width:100%"></audio>`:""}</div>`:""}<div class="cp-card"><button class="cp-row" onclick="editNickname('${userId}')"><span>✎ Edit contact name</span><small>${nick?esc(nick):"Only you can see this"}</small></button>${c?`<button class="cp-row" onclick="toggleSecretChat('${c.id}')"><span>${ico("lock")} ${isSecret(c.id)?"Remove from secret chats":"Move to secret chats"}</span></button>`:""}</div>${media.length?`<div class="cp-card"><div class="cp-label">Media</div><div class="cp-media">${media.map(tile).join("")}</div></div>`:""}</div></div>`);
+}
+function cpMessage(userId){closeContactPage();startChatWith(userId)}
+function cpCall(type,userId){closeContactPage();startCall(type,userId)}
+
+/* =====================  PROFILE PAGE (professional)  ===================== */
+function profileView(){
+ const u=state.user||{};
+ const photo=u.avatar_url?`<img src="${esc(u.avatar_url)}" alt="">`:esc(avatarName(meName()));
+ const row=(fn,icon,title,sub)=>`<button class="pf-row" onclick="${fn}"><span class="pf-ic">${ico(icon)}</span><span class="pf-tx"><b>${title}</b>${sub?`<small>${sub}</small>`:""}</span><span class="pf-chev">›</span></button>`;
+ return `<section class="full-page profile pf"><div class="pf-hero"><label class="pf-photo" title="Change photo">${photo}<span class="pf-cam">${ico("camera")}</span><input type="file" accept="image/*" hidden onchange="changeAvatar(this.files[0])"></label><h2>${esc(meName())}</h2><p class="pf-user">${esc(u.username||"@user")}</p><p class="pf-mail">${esc(u.email||"")}</p><div class="pf-actions"><button onclick="editProfile()">${ico("user")}<span>Edit profile</span></button><button onclick="openNoteComposer()">${ico("music")}<span>Note</span></button><button onclick="openStatusComposer()">${ico("camera")}<span>Status</span></button></div></div><div class="pf-card">${row("editProfile()","user","Edit profile","Name and username")}${row("toggleLastSeen()","user","Last seen &amp; online",state.shareLastSeen===false?"Nobody":"Everyone")}${row("enableNotifications()","chat","Notifications",notifStatus())}${row("openSecret()","lock","Secret chats","Hidden chats with your password")}</div><div class="pf-card">${row("toggleTheme()","theme","Appearance",state.theme==="dark"?"Dark":"Light")}${row("installApp()","download","Install app","Add NTalk to your home screen")}${row("forceUpdate()","download","Update app","Version "+APP_VERSION)}${row("alert('Email: '+state.user.email)","user","Account",esc(u.email||""))}</div><button class="pf-logout" onclick="logout()">Log out</button></section>`;
+}
+async function initBackend(){ await loadNicknames(); await loadPrefs();
  await loadPeople();await loadChats();
  await subscribeMessageChannel();await setupTyping();await initPresence();await setupSignaling();
  loadPrivacy();loadSecretMeta();startLastSeen();loadNotes().then(()=>{if(state.page==="chats")render()});cleanupMyNote();markDeliveredAll();
@@ -1964,6 +2080,7 @@ window.addEventListener("load",async()=>{
  if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});navigator.serviceWorker.addEventListener("message",e=>{const d=e.data||{};if(d.type==="open_chat")openChatById(d.chat_id);else if(d.type==="call_ready"&&Date.now()-Number(d.ts||0)<60000)announceReady(d.from);else if(d.type==="gcall_ready"&&Date.now()-Number(d.ts||0)<60000)announceGroupReady(d.from,d.chat_id)})}
  document.addEventListener("click",()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().then(r=>{if(r==="granted")registerPush()}).catch(()=>{})},{once:true});
  setupMsgGestures();
+ setupRowGestures();
  setupPwToggles();
  setupBackNav();
  injectCriticalCss();

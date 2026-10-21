@@ -539,3 +539,10 @@ body.in-chat .sidebar{display:none !important}
 .pf-tx small{display:block;color:var(--muted);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pf-chev{color:var(--muted);font-size:20px}
 .pf-logout{display:block;margin:18px 12px 0;width:calc(100% - 24px);padding:14px;border-radius:16px;background:rgba(255,85,112,.12);color:var(--danger);font-weight:700}
+
+/* ===== NTalk: disappearing messages, deleted messages ===== */
+.bubble{transition:opacity .3s,transform .3s}
+.bubble.vanish{opacity:0;transform:scale(.9)}
+.bubble.deleted{font-style:italic;opacity:.75}
+.vanish-ic{font-size:10px;margin-right:3px}
+.vanish-badge{font-size:11px;font-weight:600;background:var(--panel-soft);padding:1px 7px;border-radius:10px;color:var(--accent2);margin-left:6px}
